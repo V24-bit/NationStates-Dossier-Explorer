@@ -1,0 +1,1951 @@
+/* =========================================================================
+   NATIONSTATES DOSSIER EXPLORER — app.js
+   VERSION: 3 (English UI, expanded data set, Chart.js load guard)
+   A fully static NationStates client. No backend required.
+
+   MAINTAINER NOTES
+   -------------------------------------------------------------------------
+   1. USER-AGENT: NationStates API rules require an identifying User-Agent.
+      Browsers do not allow fetch()/XHR to override the User-Agent header
+      (security restriction), so a pure static page always sends the
+      visitor's own browser UA. This does not cause a 403 (the header is
+      still present), but if you want to be identifiable to NationStates,
+      route requests through a small server-side proxy you control instead
+      (see README.md for a ready-to-use Cloudflare Worker).
+
+   2. CORS: NationStates' API (an old CGI script) does not send an
+      Access-Control-Allow-Origin header. A page hosted elsewhere (e.g.
+      GitHub Pages) may hit a browser-side CORS error on the direct call.
+      This file tries the direct request first and automatically falls
+      back to a configurable public CORS proxy if it fails. Swap
+      CORS_PROXY for your own Worker for anything beyond casual use.
+
+   3. RATE LIMIT: the API allows 50 requests / 30 seconds per IP. Every
+      call in this file goes through a single queue (see `queuedFetch`)
+      spaced comfortably under that limit, even when a visitor opens
+      "Show full rankings".
+   ========================================================================= */
+
+(() => {
+  "use strict";
+  console.log("[NationStates Dossier Explorer] script.js v3 loaded.");
+
+  // ------------------------------------------------------------------ CONFIG
+  const API_BASE = "https://www.nationstates.net/cgi-bin/api.cgi";
+  const CORS_PROXY = "https://api.allorigins.win/raw?url=";
+  const MIN_REQUEST_SPACING_MS = 700;
+
+  const NATION_SHARDS = [
+    "name", "type", "fullname", "motto", "category", "wa", "endorsements",
+    "influence", "influencenum", "freedom", "census", "govt", "govtdesc",
+    "govtpriority", "sectors", "policies", "notable", "notables",
+    "sensibilities", "animal", "animaltrait", "currency", "flag", "capital",
+    "leader", "religion", "founded", "firstlogin", "lastlogin", "lastactivity",
+    "region", "population", "gdp", "income", "tax", "majorindustry", "demonym",
+    "banner",
+    "dbid", "happenings", "dispatchlist", "deaths", "crime", "legislation",
+    "publicsector", "poorest", "richest", "nstats", "factbooklist"
+  ].join("+");
+
+  const REGION_SHARDS = [
+    "name", "factbook", "flag", "banner", "bannerby", "bannerurl", "delegate",
+    "delegateauth", "delegatevotes", "founder", "founded", "foundedtime", "governor",
+    "governortitle", "officers", "embassies", "tags", "power", "numnations",
+    "numwanations", "nations", "census", "happenings", "history", "lastupdate",
+    "lastmajorupdate", "messages", "banlist", "frontier", "recruiters",
+    "magnetism", "dispatches", "poll"
+  ].join("+");
+
+  // ------------------------------------------------------------ NUMBER/TEXT
+  const enLocale = (n, opts) => Number(n).toLocaleString("en-US", opts || {});
+
+  function stripBBCode(t) {
+    if (!t) return "";
+    return t
+      .replace(/\[(nation|region)(?:=\w+)?\]([^\[]*)\[\/\1\]/gi, "$2")
+      .replace(/\[url=[^\]]+\]([^\[]*)\[\/url\]/gi, "$1")
+      .replace(/\[\/?[a-z0-9=_"'#% ]+\]/gi, "")
+      .trim();
+  }
+
+  function humanizeTag(tag) {
+    const map = {
+      ADMINISTRATION: "Administration", DEFENCE: "Defence", EDUCATION: "Education",
+      ENVIRONMENT: "Environment", HEALTHCARE: "Healthcare", COMMERCE: "Commerce",
+      INTERNATIONALAID: "International Aid", LAWANDORDER: "Law & Order",
+      PUBLICTRANSPORT: "Public Transport", SOCIALEQUALITY: "Social Equality",
+      SPIRITUALITY: "Spirituality", WELFARE: "Welfare",
+      BLACKMARKET: "Black Market", GOVERNMENT: "Government", INDUSTRY: "Private Industry",
+      PUBLIC: "State-Owned Industry"
+    };
+    if (map[tag]) return map[tag];
+    return tag.charAt(0) + tag.slice(1).toLowerCase();
+  }
+
+  const AUTHORITY_MAP = {
+    X: "Executive", W: "World Assembly", S: "Succession", A: "Appearance",
+    B: "Border Control", C: "Communications", E: "Embassies", P: "Polls"
+  };
+
+
+  // World Census scale names we know for certain. Everything else is
+  // resolved live from the API on first use and cached permanently in
+  // localStorage, so the code stays correct even if new scales are added.
+  // Official NationStates census scale names. These match the API's
+  // `censusname` shard exactly, so the labels shown in the World Census report
+  // are the "Most …" / "Largest …" titles actually used on NationStates.
+  const CENSUS_NAMES_SEED = {
+    0: "Most Extensive Civil Rights", 1: "Most Efficient Economies", 2: "Most Politically Free",
+    3: "Largest Populations", 27: "Largest Governments", 66: "Most World Assembly Endorsements"
+  };
+  // Load any previously-resolved names first, then let the (authoritative)
+  // official seed win, so a stale cached short name can never override the
+  // correct NationStates "Most …" / "Largest …" title for a known scale.
+  const censusNameCache = new Map();
+  try {
+    const stored = JSON.parse(localStorage.getItem("ns_census_names") || "{}");
+    Object.entries(stored).forEach(([k, v]) => censusNameCache.set(Number(k), v));
+  } catch (_) { /* localStorage unavailable: continue without persistent cache */ }
+  Object.entries(CENSUS_NAMES_SEED).forEach(([k, v]) => censusNameCache.set(Number(k), v));
+
+  function persistCensusCache() {
+    try { localStorage.setItem("ns_census_names", JSON.stringify(Object.fromEntries(censusNameCache))); }
+    catch (_) { /* ignore if storage isn't writable (e.g. private browsing) */ }
+  }
+
+  // --------------------------------------------------------------- NETWORK
+
+  let queueTail = Promise.resolve();
+  function queuedFetch(url) {
+    const scheduled = queueTail.then(
+      () => new Promise((resolve) => setTimeout(() => resolve(rawFetch(url)), MIN_REQUEST_SPACING_MS))
+    );
+    queueTail = scheduled.catch(() => {});
+    return scheduled;
+  }
+
+  async function rawFetch(url) {
+    try {
+      return await fetch(url, { headers: { "Accept": "text/xml" } });
+    } catch (directError) {
+      try {
+        return await fetch(CORS_PROXY + encodeURIComponent(url));
+      } catch (proxyError) {
+        throw new Error("Could not reach the NationStates API, either directly or through the backup CORS proxy. Check your connection or the proxy configured in script.js.");
+      }
+    }
+  }
+
+  class NSApiError extends Error {}
+
+  async function fetchXML(url) {
+    const res = await queuedFetch(url);
+    if (res.status === 404) throw new NSApiError("No dossier found under that name. Check the spelling.");
+    if (res.status === 403) throw new NSApiError("Request rejected by the API (403). The server may be blocking requests without a recognizable User-Agent.");
+    if (res.status === 429) {
+      const retry = res.headers.get("Retry-After");
+      throw new NSApiError(`Rate limit reached. Try again in ${retry || "a few"} seconds.`);
+    }
+    if (!res.ok) throw new NSApiError(`The API responded with an error (HTTP ${res.status}).`);
+    const bodyText = await res.text();
+    const doc = new DOMParser().parseFromString(bodyText, "application/xml");
+    if (doc.querySelector("parsererror")) throw new NSApiError("The API response wasn't valid XML. Please try again.");
+    return doc;
+  }
+
+  function buildUrl(params) { return `${API_BASE}?${new URLSearchParams(params).toString()}`; }
+  function normalizeName(raw) { return raw.trim().toLowerCase().replace(/\s+/g, "_"); }
+
+  async function fetchNation(name) {
+    return fetchXML(buildUrl({
+      nation: normalizeName(name), q: NATION_SHARDS,
+      scale: "all", mode: "score+rank+prank+rrank+prrank"
+    }));
+  }
+  async function fetchRegionMain(name) {
+    return fetchXML(buildUrl({
+      region: normalizeName(name), q: REGION_SHARDS,
+      scale: "all", mode: "score+rank+prank", limit: "12"
+    }));
+  }
+  async function resolveCensusName(id) {
+    if (censusNameCache.has(id)) return censusNameCache.get(id);
+    try {
+      const doc = await fetchXML(buildUrl({ q: "censusname", scale: String(id) }));
+      const name = (doc.documentElement.textContent || "").trim() || `World Census Scale #${id}`;
+      censusNameCache.set(id, name);
+      persistCensusCache();
+      return name;
+    } catch (_) { return `World Census Scale #${id}`; }
+  }
+
+  // -------------------------------------------------------------- DOM UTILS
+
+  const $root = document.getElementById("dossier-root");
+  const $banner = document.getElementById("status-banner");
+
+  function showBanner(msg, type) { $banner.textContent = msg; $banner.className = "banner" + (type ? ` is-${type}` : ""); $banner.hidden = false; }
+  function hideBanner() { $banner.hidden = true; }
+  function text(doc, tag) { const el = doc.querySelector(tag); return el ? el.textContent.trim() : ""; }
+  function fill(root, field, value, fallback = "—") {
+    const el = root.querySelector(`[data-f="${field}"]`);
+    if (!el) return;
+    el.textContent = (value === undefined || value === null || value === "") ? fallback : value;
+  }
+  function fillImg(root, field, src) {
+    const el = root.querySelector(`[data-f="${field}"]`);
+    if (!el) return;
+    if (src) { el.src = src; el.style.display = ""; } else { el.style.display = "none"; }
+  }
+  function makeChip(labelText, title) {
+    const span = document.createElement("span");
+    span.className = "chip";
+    span.textContent = labelText;
+    if (title) span.title = title;
+    return span;
+  }
+  function makeLogItem(timeLabel, bodyStr) {
+    const li = document.createElement("li");
+    const time = document.createElement("span"); time.className = "log-time"; time.textContent = timeLabel;
+    const body = document.createElement("span"); body.className = "log-text"; body.textContent = bodyStr;
+    li.append(time, body);
+    return li;
+  }
+  function fmtDate(unixSeconds) {
+    const n = Number(unixSeconds);
+    if (!n) return "";
+    return new Date(n * 1000).toLocaleString("en-US", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  // -------------------------------------------------------------- CHARTS
+
+  const CHART_AVAILABLE = typeof Chart !== "undefined";
+  if (CHART_AVAILABLE) {
+    Chart.defaults.color = "#333333";
+    Chart.defaults.borderColor = "#c9d3da";
+    Chart.defaults.font.family = "Verdana, Arial, Helvetica, sans-serif";
+    Chart.defaults.font.size = 11;
+  } else {
+    console.warn("Chart.js failed to load: charts will be skipped, the rest of the dossier still works.");
+  }
+
+  let activeCharts = [];
+  function destroyCharts() { activeCharts.forEach((c) => c.destroy()); activeCharts = []; }
+
+  // High-contrast qualitative palette: every adjacent slice gets a clearly
+  // different hue, so charts with many categories stay readable.
+  const PALETTE = ["#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD", "#8C564B",
+                    "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF", "#3366CC", "#DC3912",
+                    "#9933FF", "#109618", "#0099C6", "#DD4477", "#66AA00", "#B82E2E",
+                    "#316395", "#994499"];
+
+  // Each freedom axis matches its legend colour (blue / gold / red).
+  const FREEDOM_POINT_COLORS = ["#2E5C82", "#B8860B", "#B00020"];
+  function renderRadar(canvasId, labels, values) {
+    if (!CHART_AVAILABLE) return;
+    const el = document.getElementById(canvasId);
+    if (!el) return;
+    const chart = new Chart(el, {
+      type: "radar",
+      data: { labels, datasets: [{ data: values,
+        backgroundColor: "rgba(46,92,130,0.18)",
+        borderColor: "#2E5C82", borderWidth: 2,
+        // colour each vertex to match the legend dot for its axis
+        pointBackgroundColor: labels.map((_, i) => FREEDOM_POINT_COLORS[i] || "#C9A227"),
+        pointBorderColor: "#fff",
+        pointRadius: 4, pointHoverRadius: 5 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { r: { min: 0, max: 100, grid: { color: "#dde4e9" }, angleLines: { color: "#dde4e9" },
+          pointLabels: { font: { size: 10.5 } }, ticks: { display: false } } }
+      }
+    });
+    activeCharts.push(chart);
+  }
+
+  // Render a donut. The legend is built as HTML below the chart instead of the
+  // built-in right-side one, which gets clipped when there are many categories.
+  function renderDonut(canvasId, labels, values) {
+    if (!CHART_AVAILABLE) return;
+    const el = document.getElementById(canvasId);
+    if (!el || !values.length) return;
+    const chart = new Chart(el, {
+      type: "doughnut",
+      data: { labels, datasets: [{ data: values, backgroundColor: PALETTE, borderColor: "#F5F7F9", borderWidth: 2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (c) => `${c.label}: ${enLocale(c.parsed, { maximumFractionDigits: 1 })}%` } }
+        }
+      }
+    });
+    activeCharts.push(chart);
+    // Wrap-around HTML legend: every category always visible, no clipping.
+    const wrap = el.closest(".chart-box--govt")?.parentElement?.querySelector("[data-f=\"govt-legend\"]");
+    if (wrap) {
+      wrap.innerHTML = "";
+      const total = values.reduce((a, b) => a + b, 0) || 1;
+      labels.forEach((label, i) => {
+        const item = document.createElement("span");
+        item.className = "govt-legend__item";
+        const dot = document.createElement("span");
+        dot.className = "govt-legend__dot";
+        dot.style.background = PALETTE[i % PALETTE.length];
+        const txt = document.createElement("span");
+        txt.textContent = `${label} ${enLocale((values[i] / total) * 100, { maximumFractionDigits: 1 })}%`;
+        item.append(dot, txt);
+        wrap.appendChild(item);
+      });
+    }
+  }
+
+  function renderHBar(canvasId, labels, values, suffix) {
+    if (!CHART_AVAILABLE) return;
+    const el = document.getElementById(canvasId);
+    if (!el || !values.length) return;
+    const chart = new Chart(el, {
+      type: "bar",
+      data: { labels, datasets: [{ data: values, backgroundColor: values.map((_, i) => PALETTE[i % PALETTE.length]), borderRadius: 2, maxBarThickness: 26 }] },
+      options: {
+        indexAxis: "y", responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { grid: { color: "#dde4e9" }, ticks: { callback: (v) => v + (suffix || "") } }, y: { grid: { display: false } } }
+      }
+    });
+    activeCharts.push(chart);
+  }
+
+  // ---------------------------------------------------------- CENSUS BLOCKS
+
+  function parseCensusScales(doc) {
+    return Array.from(doc.querySelectorAll("CENSUS SCALE")).map((scale) => ({
+      id: Number(scale.getAttribute("id")),
+      score: parseFloat(scale.querySelector("SCORE")?.textContent ?? "NaN"),
+      rank: scale.querySelector("RANK")?.textContent?.trim() ?? "",
+      prank: parseFloat(scale.querySelector("PRANK")?.textContent ?? "NaN"),
+      rrank: scale.querySelector("RRANK")?.textContent?.trim() ?? "",
+      prrank: parseFloat(scale.querySelector("PRRANK")?.textContent ?? "NaN")
+    })).filter((s) => !Number.isNaN(s.id));
+  }
+
+  function buildCensusRow(name, scale) {
+    const li = document.createElement("li");
+    li.className = "census-row";
+    const nameEl = document.createElement("span"); nameEl.className = "census-row__name"; nameEl.textContent = name;
+    const barWrap = document.createElement("span"); barWrap.className = "census-row__bar";
+    const fillBar = document.createElement("span"); fillBar.className = "census-row__fill";
+    const pct = Number.isFinite(scale.prank) ? Math.max(2, 100 - scale.prank) : 50;
+    fillBar.style.width = pct + "%";
+    barWrap.appendChild(fillBar);
+    const val = document.createElement("span"); val.className = "census-row__val";
+    const worldLabel = Number.isFinite(scale.prank) ? `World top ${enLocale(scale.prank)}%` : (scale.rank ? `World #${scale.rank}` : "");
+    const regionLabel = scale.rrank ? ` · Region #${scale.rrank}` : "";
+    val.textContent = `${enLocale(scale.score, { maximumFractionDigits: 2 })} · ${worldLabel}${regionLabel}`;
+    li.append(nameEl, barWrap, val);
+    return li;
+  }
+
+  let censusChart = null;
+  let censusHistoryOn = false;
+  let censusHistoryData = null;
+  // Cache of history series, keyed by scale id ("12"), so preloaded series are
+  // reused instantly when the user opens a trend graph. Values are arrays of
+  // { t, v } points, or the string "loading" while a prefetch is in flight.
+  const historyCache = new Map();
+
+  // Preload the time-series history for the featured scales in the background so
+  // the trend graphs the user is most likely to open are already fetched. All
+  // requests go through queuedFetch, which serialises them under the API rate
+  // limit, so this never floods the server.
+  function prefetchCensusHistory(entityType, entityName, scaleIds) {
+    (scaleIds || []).forEach((id) => {
+      if (historyCache.has(String(id))) return;
+      historyCache.set(String(id), "loading");
+      fetchCensusHistory(entityType, entityName, id)
+        .then((pts) => { historyCache.set(String(id), pts.length >= 2 ? pts : []); })
+        .catch(() => { historyCache.set(String(id), []); });
+    });
+  }
+
+  async function fetchCensusHistory(entityType, entityName, scaleId) {
+    const params = entityType === "nation"
+      ? { nation: entityName, q: "census", scale: String(scaleId), mode: "history" }
+      : { region: entityName, q: "census", scale: String(scaleId), mode: "history" };
+    const doc = await fetchXML(buildUrl(params));
+    const pts = [];
+    doc.querySelectorAll("SCALE > POINT").forEach((p) => {
+      const ts = Number(p.querySelector("TIMESTAMP")?.textContent);
+      const sc = Number(p.querySelector("SCORE")?.textContent);
+      if (Number.isFinite(ts) && Number.isFinite(sc)) pts.push({ t: ts, v: sc });
+    });
+    pts.sort((a, b) => a.t - b.t);
+    return pts;
+  }
+
+  function currentEntityName() {
+    const el = document.querySelector('.dossier [data-f="name"]');
+    return el ? el.textContent.trim() : "";
+  }
+
+  // Draw a history line chart into an arbitrary canvas. Returns the Chart
+  // (or null) so the caller can destroy it on collapse. Never touches the
+  // shared censusChart used by the detail panel.
+  function drawHistorySeries(canvas, pts) {
+    if (!CHART_AVAILABLE || !canvas) return null;
+    const labels = pts.map((p) => new Date(p.t * 1000).toLocaleDateString(undefined, { month: "short", year: "2-digit" }));
+    const chart = new Chart(canvas, {
+      type: "line",
+      data: { labels, datasets: [{ data: pts.map((p) => p.v),
+        borderColor: "#2E5C82", backgroundColor: "rgba(46,92,130,0.12)",
+        fill: true, tension: 0.25, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { title: (items) => new Date(pts[items[0].dataIndex].t * 1000).toLocaleDateString(),
+            label: (c) => ` Score: ${enLocale(c.parsed.y, { maximumFractionDigits: 2 })}` } } },
+        scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 8, font: { size: 9.5 } } },
+          y: { grid: { color: "#dde4e9" }, ticks: { font: { size: 9.5 } } } }
+      }
+    });
+    activeCharts.push(chart);
+    return chart;
+  }
+
+  function drawCensusHistoryLine(canvas, pts) {
+    if (!CHART_AVAILABLE) return;
+    if (censusChart) { censusChart.destroy(); censusChart = null; }
+    censusChart = drawHistorySeries(canvas, pts);
+  }
+
+  // ---- Themes for the Profile Ladder (scale id -> group) ----
+  const CENSUS_THEMES = [
+    { name: "Freedoms",               color: "#2E5C82", ids: [0, 1, 2] },
+    { name: "Economy",                color: "#B8860B", ids: [4, 31, 33, 48, 49, 50, 56, 72, 73, 74, 76, 79, 85] },
+    { name: "Industry",               color: "#17BECF", ids: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26] },
+    { name: "Government & Diplomacy", color: "#9467BD", ids: [8, 27, 28, 30, 51, 52, 53, 57, 66, 78] },
+    { name: "Health & Welfare",       color: "#2CA02C", ids: [5, 29, 39, 44, 60, 61, 75, 81, 88] },
+    { name: "Society & Culture",      color: "#E377C2", ids: [6, 9, 32, 34, 35, 36, 37, 38, 40, 45, 54, 55, 58, 62, 64, 67, 71, 86, 87, 89] },
+    { name: "Environment & Nature",   color: "#8C564B", ids: [7, 41, 63, 80] },
+    { name: "Safety & Security",      color: "#D62728", ids: [42, 43, 46, 47, 59, 77] },
+    { name: "Development",            color: "#3366CC", ids: [68, 69, 70] },
+    { name: "Population & Events",    color: "#7F7F7F", ids: [3, 65, 82, 83, 84] }
+  ];
+  const THEME_BY_ID = {};
+  CENSUS_THEMES.forEach((t) => t.ids.forEach((id) => { THEME_BY_ID[id] = t; }));
+
+  function renderCensusLadder(ladderEl, legendEl, sorted, nameOf, onSelect, mode) {
+    if (!ladderEl) return;
+    // featured axes from the radar, shown expanded
+    const featured = [0, 1, 2, 3, 27, 29, 72, 75];
+    const byId = {};
+    sorted.forEach((s) => { byId[s.id] = s; });
+
+    // ---- legend ----
+    if (legendEl) {
+      legendEl.innerHTML = "";
+      const used = [];
+      sorted.forEach((s) => { const t = THEME_BY_ID[s.id]; if (t && !used.includes(t)) used.push(t); });
+      used.forEach((t) => {
+        const chip = document.createElement("span");
+        chip.className = "census-legend-chip";
+        chip.innerHTML = `<span class="census-legend-dot" style="background:${t.color}"></span>`;
+        chip.appendChild(document.createTextNode(t.name));
+        legendEl.appendChild(chip);
+      });
+    }
+
+    // ---- group scales by theme, order themes by CENSUS_THEMES order ----
+    const groups = CENSUS_THEMES.map((t) => ({ theme: t, scales: [] })).filter((g) => g.theme.ids.some((id) => byId[id]));
+    groups.forEach((g) => {
+      // sort best (low prank) first within the group, unknowns last
+      g.scales = g.theme.ids.map((id) => byId[id]).filter(Boolean)
+        .sort((a, b) => (a.prank ?? 999) - (b.prank ?? 999));
+    });
+    // featured scales expanded: if a theme has a featured scale, expand that group
+    // (handled by CSS: groups containing a featured axis get .is-featured)
+
+    ladderEl.innerHTML = "";
+    groups.forEach((g) => {
+      if (!g.scales.length) return;
+      const sec = document.createElement("section");
+      sec.className = "census-ladder-group";
+      const isFeatured = g.scales.some((s) => featured.includes(s.id));
+      if (isFeatured) sec.classList.add("is-featured");
+      const head = document.createElement("div");
+      head.className = "census-ladder-group__head";
+      head.innerHTML = `<span class="census-ladder-group__dot" style="background:${g.theme.color}"></span><span class="census-ladder-group__name">${g.theme.name}</span><span class="census-ladder-group__count">${g.scales.length}</span>`;
+      sec.appendChild(head);
+
+      g.scales.forEach((s) => {
+        const pct = Number.isFinite(s.prank) ? Math.max(0, Math.min(100, 100 - s.prank)) : 0;
+        // Item wrapper: the clickable row plus a collapse-able body holding the
+        // history graph. Clicking the row toggles the body open/closed.
+        const item = document.createElement("div");
+        item.className = "census-ladder-item" + (featured.includes(s.id) ? " is-featured" : "");
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "census-ladder-row";
+        row.dataset.scaleId = String(s.id);
+        row.setAttribute("aria-expanded", "false");
+        const label = document.createElement("span");
+        label.className = "census-ladder-row__name";
+        label.textContent = nameOf(s);
+        label.title = nameOf(s);
+        if (!censusNameCache.has(s.id)) resolveCensusName(s.id).then((nm) => { label.textContent = nm; label.title = nm; });
+        const track = document.createElement("span");
+        track.className = "census-ladder-row__track";
+        const fill = document.createElement("span");
+        fill.className = "census-ladder-row__fill";
+        fill.style.width = pct + "%";
+        fill.style.background = g.theme.color;
+        track.appendChild(fill);
+        const val = document.createElement("span");
+        val.className = "census-ladder-row__val";
+        val.textContent = Number.isFinite(s.prank) ? `Top ${enLocale(s.prank)}%` : "—";
+        const chevron = document.createElement("span");
+        chevron.className = "census-ladder-row__chevron";
+        chevron.textContent = "▾";
+        row.append(label, track, val, chevron);
+
+        // Collapsible body.
+        const body = document.createElement("div");
+        body.className = "census-ladder-body";
+        body.hidden = true;
+        const chartBox = document.createElement("div");
+        chartBox.className = "census-ladder-body__chart";
+        const canvas = document.createElement("canvas");
+        chartBox.appendChild(canvas);
+        const note = document.createElement("span");
+        note.className = "census-ladder-body__note";
+        body.appendChild(chartBox);
+        body.appendChild(note);
+
+        // Toggle handler.
+        const entityName = currentEntityName();
+        const scaleId = String(s.id);
+        let openChart = null;
+        row.addEventListener("click", () => {
+          const open = body.hidden;
+          if (open) {
+            // Ensure prefetch started (in case this wasn't a featured scale).
+            prefetchCensusHistory(mode, entityName, [s.id]);
+            body.hidden = false;
+            row.setAttribute("aria-expanded", "true");
+            row.classList.add("is-open");
+            note.textContent = "Loading trend…";
+            const cached = historyCache.get(scaleId);
+            if (Array.isArray(cached)) {
+              if (cached.length >= 2) { openChart = drawHistorySeries(canvas, cached); note.textContent = ""; }
+              else { note.textContent = "No trend data available."; }
+            } else if (cached === "loading") {
+              const check = setInterval(() => {
+                const c2 = historyCache.get(scaleId);
+                if (Array.isArray(c2)) {
+                  clearInterval(check);
+                  if (c2.length >= 2) { openChart = drawHistorySeries(canvas, c2); note.textContent = ""; }
+                  else { note.textContent = "No trend data available."; }
+                }
+              }, 400);
+              setTimeout(() => clearInterval(check), 15000);
+            } else {
+              // Not cached yet: fetch now.
+              fetchCensusHistory(mode, entityName, s.id).then((pts) => {
+                historyCache.set(scaleId, pts);
+                if (pts.length >= 2) { openChart = drawHistorySeries(canvas, pts); note.textContent = ""; }
+                else { note.textContent = "No trend data available."; }
+              }).catch(() => { note.textContent = "Could not load trend data."; });
+            }
+          } else {
+            if (openChart) { openChart.destroy(); openChart = null; }
+            body.hidden = true;
+            row.setAttribute("aria-expanded", "false");
+            row.classList.remove("is-open");
+          }
+        });
+        item.append(row, body);
+        sec.appendChild(item);
+      });
+      ladderEl.appendChild(sec);
+    });
+  }
+  function renderCensusExplorer(root, scales, mode) {
+    const section = root.querySelector('[data-f="census-section"]');
+    if (!section || !scales.length) return;
+    const isNation = mode === "nation";
+    const tabs = section.querySelector('[data-f="census-tabs"]');
+    const tbody = section.querySelector('[data-f="census-full-body"]');
+    const nameEl = section.querySelector('[data-f="census-detail-name"]');
+    const badgeEl = section.querySelector('[data-f="census-detail-badge"]');
+    const gaugeFill = section.querySelector('[data-f="census-gauge-fill"]');
+    const gaugeScore = section.querySelector('[data-f="census-gauge-score"]');
+    const wrankEl = section.querySelector('[data-f="census-wrank"]');
+    const wpctEl = section.querySelector('[data-f="census-wpct"]');
+    const rrankEl = section.querySelector('[data-f="census-rrank"]');
+    const rpctEl = section.querySelector('[data-f="census-rpct"]');
+    const chartEl = section.querySelector('[data-f="census-chart"]');
+    const radarEl = section.querySelector('[data-f="census-radar"]');
+    const standoutsEl = section.querySelector('[data-f="census-standouts"]');
+    const historyBtn = section.querySelector('[data-action="census-history"]');
+    const ladderEl = section.querySelector('[data-f="census-ladder"]');
+    const legendEl = section.querySelector('[data-f="census-legend"]');
+
+    const sorted = [...scales].sort((a, b) => (a.prank ?? 999) - (b.prank ?? 999));
+    function nameOf(s) { return censusNameCache.get(s.id) || `World Census Scale #${s.id}`; }
+
+    // ---- Overview radar: percentile on a curated set of recognisable scales ----
+    if (CHART_AVAILABLE && radarEl) {
+      const CORE = [0, 1, 2, 3, 27, 29, 72, 75]; // Civil Rights, Economy, Political Freedom, Population, Government Size, Healthcare, Avg Income, Education
+      const axes = sorted.filter((s) => CORE.includes(s.id));
+      if (!axes.length) axes.push(...sorted.slice(0, 6));
+      const pcts = axes.map((s) => (Number.isFinite(s.prank) ? Math.max(0, Math.min(100, 100 - s.prank)) : 0));
+      const radarChart = new Chart(radarEl, {
+        type: "radar",
+        data: { labels: axes.map((s) => nameOf(s)),
+          datasets: [{ data: pcts,
+            backgroundColor: "rgba(46,92,130,0.20)", borderColor: "#2E5C82", borderWidth: 2,
+            pointBackgroundColor: "#C9A227", pointBorderColor: "#fff", pointRadius: 3, pointHoverRadius: 4 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false },
+            tooltip: { callbacks: { label: (c) => ` Top ${enLocale(Math.max(0, 100 - c.raw))}%` } } },
+          scales: { r: { min: 0, max: 100, grid: { color: "#dde4e9" }, angleLines: { color: "#dde4e9" },
+            pointLabels: { font: { size: 10 } }, ticks: { display: false } } }
+        }
+      });
+      activeCharts.push(radarChart);
+      axes.forEach((s) => { if (!censusNameCache.has(s.id)) resolveCensusName(s.id).then(() => {
+        const ch = Chart.getChart(radarEl);
+        if (ch) { ch.data.labels = axes.map((x) => nameOf(x)); ch.update(); }
+      }); });
+    }
+
+    // ---- Standouts: top 3 best + bottom 3 worst chips (clickable) ----
+    const rated = sorted.filter((s) => Number.isFinite(s.prank));
+    if (standoutsEl) {
+      standoutsEl.innerHTML = "";
+      const best = rated.slice(0, 3);
+      const worst = rated.slice(-3).reverse().filter((s) => !best.includes(s));
+      const mk = (s, cls) => {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "census-standout " + cls;
+        b.innerHTML = `<span class="census-standout__name"></span><span class="census-standout__val"></span>`;
+        b.querySelector(".census-standout__name").textContent = nameOf(s);
+        b.querySelector(".census-standout__val").textContent = `Top ${enLocale(s.prank)}%`;
+        b.addEventListener("click", () => { censusHistoryOn = false; showDetail(s); });
+        standoutsEl.appendChild(b);
+        if (!censusNameCache.has(s.id)) resolveCensusName(s.id).then((nm) => { b.querySelector(".census-standout__name").textContent = nm; });
+      };
+      best.forEach((s) => mk(s, "census-standout--best"));
+      worst.forEach((s) => mk(s, "census-standout--worst"));
+    }
+
+    function showDetail(s) {
+      const name = nameOf(s);
+      nameEl.textContent = name;
+      censusHistoryOn = false;
+      if (historyBtn) { historyBtn.setAttribute("aria-pressed", "false"); historyBtn.textContent = "Show history"; }
+      const pct = Number.isFinite(s.prank) ? Math.max(0, Math.min(100, 100 - s.prank)) : null;
+      gaugeFill.style.width = (pct ?? 50) + "%";
+      gaugeFill.className = "census-gauge__fill" + (pct !== null && pct >= 80 ? " is-top" : pct !== null && pct <= 20 ? " is-low" : "");
+      gaugeScore.textContent = Number.isFinite(s.score) ? enLocale(s.score, { maximumFractionDigits: 2 }) : "—";
+      if (Number.isFinite(s.prank)) {
+        badgeEl.hidden = false;
+        badgeEl.textContent = `World top ${enLocale(s.prank)}%`;
+        badgeEl.className = "census-detail__badge" + (s.prank <= 1 ? " is-elite" : s.prank <= 10 ? " is-strong" : "");
+      } else { badgeEl.hidden = true; }
+      wrankEl.textContent = s.rank ? `#${s.rank}` : "—";
+      wpctEl.textContent = Number.isFinite(s.prank) ? `Top ${enLocale(s.prank)}%` : "—";
+      rrankEl.textContent = s.rrank ? `#${s.rrank}` : "—";
+      rpctEl.textContent = Number.isFinite(s.prrank) ? `Top ${enLocale(s.prrank)}%` : "—";
+      tabs.querySelectorAll(".census-tab").forEach((t) => t.classList.toggle("is-active", Number(t.dataset.scaleId) === s.id));
+      tbody.querySelectorAll("tr").forEach((tr) => tr.classList.toggle("is-selected", Number(tr.dataset.scaleId) === s.id));
+      // default detail chart: percentile bars
+      if (CHART_AVAILABLE && chartEl) {
+        if (censusChart) { censusChart.destroy(); censusChart = null; }
+        const pWorld = Number.isFinite(s.prank) ? Math.max(0, 100 - s.prank) : null;
+        const pRegion = Number.isFinite(s.prrank) ? Math.max(0, 100 - s.prrank) : null;
+        censusChart = new Chart(chartEl, {
+          type: "bar",
+          data: {
+            labels: [isNation ? "World percentile" : "Percentile among regions", "Region percentile"],
+            datasets: [{ data: [pWorld ?? 0, pRegion ?? 0],
+              backgroundColor: ["rgba(46,92,130,0.55)", "rgba(201,162,39,0.55)"],
+              borderColor: ["#2E5C82", "#C9A227"], borderWidth: 1, borderRadius: 2, maxBarThickness: 46 }]
+          },
+          options: {
+            indexAxis: "y", responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ` Top ${enLocale(100 - c.raw)}%` } } },
+            scales: { x: { min: 0, max: 100, grid: { color: "#dde4e9" }, ticks: { callback: (v) => v + "" } }, y: { grid: { display: false }, ticks: { font: { size: 10.5 } } } }
+          }
+        });
+        activeCharts.push(censusChart);
+      }
+    }
+
+    // ---- History toggle: fetch and draw the score over time ----
+    if (historyBtn) {
+      historyBtn.replaceWith(historyBtn.cloneNode(true));
+      const btn = section.querySelector('[data-action="census-history"]');
+      btn.addEventListener("click", async () => {
+        const active = tabs.querySelector(".census-tab.is-active");
+        if (!active) return;
+        const s = sorted.find((x) => x.id === Number(active.dataset.scaleId));
+        if (!s) return;
+        const pressing = btn.getAttribute("aria-pressed") !== "true";
+        if (pressing) {
+          btn.setAttribute("aria-pressed", "true");
+          btn.textContent = "Loading…";
+          btn.disabled = true;
+          try {
+            const nm = currentEntityName();
+            const pts = await fetchCensusHistory(mode, nm, s.id);
+            if (pts.length >= 2) {
+              drawCensusHistoryLine(chartEl, pts);
+              btn.textContent = "Show current";
+            } else {
+              btn.textContent = "No data";
+              setTimeout(() => { btn.textContent = "Show history"; btn.disabled = false; }, 1500);
+              btn.setAttribute("aria-pressed", "false");
+              return;
+            }
+          } catch (err) {
+            btn.textContent = "Show history";
+            btn.setAttribute("aria-pressed", "false");
+            $banner.hidden = false;
+            $banner.textContent = "Could not load history: " + (err && err.message ? err.message : "unknown error");
+            setTimeout(() => { $banner.hidden = true; }, 4000);
+          }
+          btn.disabled = false;
+        } else {
+          btn.setAttribute("aria-pressed", "false");
+          btn.textContent = "Show history";
+          showDetail(s);
+        }
+      });
+    }
+
+    // build tabs (best-first order, clickable)
+    tabs.innerHTML = "";
+    sorted.forEach((s) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "census-tab"; b.dataset.scaleId = String(s.id);
+      b.textContent = nameOf(s);
+      b.title = Number.isFinite(s.prank) ? `World top ${enLocale(s.prank)}%` : "";
+      b.addEventListener("click", () => showDetail(s));
+      tabs.appendChild(b);
+      if (!censusNameCache.has(s.id)) resolveCensusName(s.id).then((nm) => { b.textContent = nm; if (b.classList.contains("is-active")) nameEl.textContent = nm; });
+    });
+
+    // build full table (clickable rows)
+    tbody.innerHTML = "";
+    sorted.forEach((s) => {
+      const tr = document.createElement("tr");
+      tr.dataset.scaleId = String(s.id); tr.style.cursor = "pointer";
+      const tdName = document.createElement("td"); tdName.textContent = nameOf(s);
+      const tdScore = document.createElement("td"); tdScore.textContent = Number.isFinite(s.score) ? enLocale(s.score, { maximumFractionDigits: 2 }) : "—";
+      const tdRank = document.createElement("td");
+      if (s.rank) {
+        const a = document.createElement("a");
+        a.href = `https://www.nationstates.net/page=census_rank${isNation ? "" : "_region"};scale=${s.id};start=max`;
+        a.target = "_blank"; a.rel = "noopener"; a.textContent = `#${s.rank}`;
+        tdRank.appendChild(a);
+      } else { tdRank.textContent = "—"; }
+      const tdPrank = document.createElement("td"); tdPrank.textContent = Number.isFinite(s.prank) ? `Top ${enLocale(s.prank)}%` : "—";
+      const tdRRank = document.createElement("td"); tdRRank.textContent = s.rrank ? `#${s.rrank}` : "—";
+      const tdPRRank = document.createElement("td"); tdPRRank.textContent = Number.isFinite(s.prrank) ? `Top ${enLocale(s.prrank)}%` : "—";
+      tr.append(tdName, tdScore, tdRank, tdPrank, tdRRank, tdPRRank);
+      tr.addEventListener("click", (e) => { if (e.target.tagName !== "A") showDetail(s); });
+      tbody.appendChild(tr);
+      if (!censusNameCache.has(s.id)) resolveCensusName(s.id).then((nm) => { tdName.textContent = nm; });
+    });
+
+    renderCensusLadder(ladderEl, legendEl, sorted, nameOf, (s) => { censusHistoryOn = false; showDetail(s); }, mode);
+    // Preload the history for the featured scales in the background so the trend
+    // graphs most likely to be opened are ready before the user clicks them.
+    prefetchCensusHistory(mode, currentEntityName(), [0, 1, 2, 3, 27, 29, 72, 75]);
+    // default: show the best-ranked scale
+    if (sorted.length) showDetail(sorted[0]);
+  }
+
+  // ------------------------------------------------------------- RENDER: NATION
+
+  async function renderNation(name) {
+    const doc = await fetchNation(name);
+    const tpl = document.getElementById("tpl-nation").content.cloneNode(true);
+    const root = tpl.querySelector(".dossier");
+
+    fillImg(root, "flag", text(doc, "FLAG"));
+
+    const unstatus = text(doc, "UNSTATUS"); // shard "wa" -> legacy tag <UNSTATUS>
+    const isMember = unstatus && !/non/i.test(unstatus);
+    const badge = root.querySelector('[data-f="wa-badge"]');
+    badge.textContent = unstatus || "Unknown";
+    badge.classList.toggle("is-online", isMember);
+    badge.classList.toggle("is-offline", !isMember && !!unstatus);
+
+    fill(root, "category", text(doc, "CATEGORY"));
+    fill(root, "dbid", text(doc, "DBID"));
+    fill(root, "name", text(doc, "NAME"));
+    fill(root, "fullname", text(doc, "FULLNAME"));
+    fill(root, "motto", text(doc, "MOTTO"), "");
+
+    fill(root, "region", text(doc, "REGION"));
+    fill(root, "founded", text(doc, "FOUNDED"));
+    fill(root, "lastactivity", text(doc, "LASTACTIVITY"));
+    fill(root, "firstlogin", fmtDate(text(doc, "FIRSTLOGIN")));
+    fill(root, "lastlogin", fmtDate(text(doc, "LASTLOGIN")));
+    const pop = text(doc, "POPULATION");
+    fill(root, "population", pop ? `${enLocale(pop)} million` : "");
+    fill(root, "capital", text(doc, "CAPITAL"));
+    fill(root, "leader", text(doc, "LEADER"));
+    fill(root, "religion", text(doc, "RELIGION"));
+    fill(root, "animal", text(doc, "ANIMAL"));
+    fill(root, "currency", text(doc, "CURRENCY"));
+    fill(root, "demonym", text(doc, "DEMONYM"));
+    fill(root, "majorindustry", text(doc, "MAJORINDUSTRY"));
+    fill(root, "govtpriority", text(doc, "GOVTPRIORITY"));
+    const tax = text(doc, "TAX");
+    fill(root, "tax", tax ? `${enLocale(tax)}%` : "");
+    const gdp = text(doc, "GDP");
+    fill(root, "gdp", gdp ? `$${enLocale(gdp)} Standard` : "");
+    const income = text(doc, "INCOME");
+    fill(root, "income", income ? `$${enLocale(income)} Standard` : "");
+
+    // additional public data
+    const publicsector = text(doc, "PUBLICSECTOR");
+    fill(root, "publicsector", publicsector ? `${enLocale(publicsector)}%` : "");
+    const poorest = text(doc, "POOREST"), richest = text(doc, "RICHEST");
+    if (poorest || richest) fill(root, "poverty", `$${enLocale(poorest)} / $${enLocale(richest)}`);
+    fill(root, "crime", text(doc, "CRIME"));
+
+    // legislation (laws as chips)
+    const lawWrap = root.querySelector('[data-f="legislation"]');
+    const laws = Array.from(doc.querySelectorAll("LEGISLATION LAW")).map((l) => l.textContent.trim()).filter(Boolean);
+    if (laws.length) { laws.forEach((l) => lawWrap.appendChild(makeChip(l))); }
+    else { lawWrap.innerHTML = '<span class="chip">None on record</span>'; }
+
+    // national statistics / factbooks
+    fill(root, "nstats", text(doc, "NSTATS > SPECIALTY") || text(doc, "NSTATS"));
+    const factbookList = Array.from(doc.querySelectorAll("FACTBOOKLIST FACTBOOK"));
+    fill(root, "factbook-count", factbookList.length ? enLocale(factbookList.length) : "—");
+    const notableWrap = root.querySelector('[data-f="notables"]');
+    const notables = Array.from(doc.querySelectorAll("NOTABLES NOTABLE")).map((n) => n.textContent.trim()).filter(Boolean);
+    if (notables.length) notables.forEach((n) => notableWrap.appendChild(makeChip(n)));
+    else { notableWrap.innerHTML = '<span class="chip">No notable traits</span>'; }
+
+    // sidebar mini stats (mirrors the "profile box" layout)
+    fill(root, "side-population", pop ? `${enLocale(pop)}m` : "—");
+    fill(root, "side-region", text(doc, "REGION"));
+    fill(root, "side-founded", text(doc, "FOUNDED"));
+
+    let extra = text(doc, "GOVTDESC");
+    const notable = text(doc, "NOTABLE");
+    const sensibilities = text(doc, "SENSIBILITIES");
+    if (notable) extra += (extra ? "\n\n" : "") + `Notable for: ${notable}.`;
+    if (sensibilities) extra += (extra ? "\n\n" : "") + `National character: ${sensibilities}.`;
+    fill(root, "govtdesc", extra, "");
+
+    const scales = parseCensusScales(doc);
+    const byId = Object.fromEntries(scales.map((s) => [s.id, s]));
+    const civilScore = byId[0]?.score ?? 0, econScore = byId[1]?.score ?? 0, polScore = byId[2]?.score ?? 0;
+    const civilTxt = text(doc, "CIVILRIGHTS"), econTxt = text(doc, "ECONOMY"), polTxt = text(doc, "POLITICALFREEDOM");
+    fill(root, "fr-civil", [civilTxt, Number.isFinite(civilScore) ? civilScore.toFixed(1) : null].filter(Boolean).join(" · "));
+    fill(root, "fr-econ", [econTxt, Number.isFinite(econScore) ? econScore.toFixed(1) : null].filter(Boolean).join(" · "));
+    fill(root, "fr-pol", [polTxt, Number.isFinite(polScore) ? polScore.toFixed(1) : null].filter(Boolean).join(" · "));
+
+    const endoRaw = text(doc, "ENDORSEMENTS");
+    const endoCount = endoRaw ? endoRaw.split(",").filter(Boolean).length : 0;
+    fill(root, "wa-status", unstatus || "Unknown");
+    fill(root, "endo-count", enLocale(endoCount));
+    const influenceNum = text(doc, "INFLUENCENUM");
+    fill(root, "influence", text(doc, "INFLUENCE") + (influenceNum ? ` (${influenceNum})` : ""));
+
+    const policyEls = Array.from(doc.querySelectorAll("POLICIES POLICY"));
+    const policyWrap = root.querySelector('[data-f="policies-list"]');
+    if (policyWrap) {
+      policyWrap.innerHTML = "";
+      if (policyEls.length) {
+        policyEls.forEach((p) => {
+          const label = p.querySelector("NAME")?.textContent?.trim() || p.querySelector("CAT")?.textContent?.trim();
+          if (label) policyWrap.appendChild(makeChip(label, p.querySelector("DESC")?.textContent?.trim() || ""));
+        });
+      } else {
+        policyWrap.innerHTML = '<span class="muted">No policies on record.</span>';
+      }
+    }
+
+    const govtEl = doc.querySelector("GOVT");
+    const govtScores = govtEl ? Array.from(govtEl.children).map((c) => ({ label: humanizeTag(c.tagName), value: parseFloat(c.textContent) })).filter((s) => s.value > 0) : [];
+
+    const sectorsEl = doc.querySelector("SECTORS");
+    const sectorScores = sectorsEl ? Array.from(sectorsEl.children).map((c) => ({ label: humanizeTag(c.tagName), value: parseFloat(c.textContent) })).filter((s) => Number.isFinite(s.value)) : [];
+
+    const deathEls = Array.from(doc.querySelectorAll("DEATHS CAUSE"));
+    const deathScores = deathEls.map((c) => ({ label: c.getAttribute("type") || "Unknown", value: parseFloat(c.textContent) }))
+      .filter((s) => Number.isFinite(s.value)).sort((a, b) => b.value - a.value).slice(0, 8);
+
+    const happeningsList = root.querySelector('[data-f="happenings"]');
+    const events = Array.from(doc.querySelectorAll("HAPPENINGS EVENT"));
+    if (events.length) {
+      events.slice(0, 12).forEach((ev) => happeningsList.appendChild(makeLogItem(fmtDate(ev.querySelector("TIMESTAMP")?.textContent), stripBBCode(ev.querySelector("TEXT")?.textContent || ""))));
+    } else {
+      happeningsList.innerHTML = '<li class="muted">No recent public activity recorded.</li>';
+    }
+
+    const dispatches = Array.from(doc.querySelectorAll("DISPATCHLIST DISPATCH"));
+    if (dispatches.length) {
+      root.querySelector('[data-f="dispatch-section"]').hidden = false;
+      const list = root.querySelector('[data-f="dispatches"]');
+      dispatches.slice(0, 10).forEach((d) => {
+        const id = d.getAttribute("id");
+        const title = d.querySelector("TITLE")?.textContent?.trim() || "Untitled";
+        const cat = d.querySelector("CATEGORY")?.textContent?.trim() || "";
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.href = `https://www.nationstates.net/page=dispatch/id=${encodeURIComponent(id || "")}`;
+        a.target = "_blank"; a.rel = "noopener"; a.textContent = title;
+        const span = document.createElement("span"); span.className = "log-text";
+        span.append(a, document.createTextNode(cat ? ` — ${cat}` : ""));
+        li.appendChild(span);
+        list.appendChild(li);
+      });
+    }
+
+    $root.innerHTML = ""; $root.appendChild(tpl); destroyCharts();
+    renderRadar("chart-freedom", ["Civil Rights", "Economy", "Political Freedom"], [civilScore || 0, econScore || 0, polScore || 0]);
+    renderDonut("chart-govt", govtScores.map((s) => s.label), govtScores.map((s) => s.value));
+    renderHBar("chart-sectors", sectorScores.map((s) => s.label), sectorScores.map((s) => s.value), "%");
+    if (deathScores.length) {
+      const deathSection = $root.querySelector('[data-f="death-section"]');
+      if (deathSection) deathSection.hidden = false;
+      renderHBar("chart-deaths", deathScores.map((s) => s.label), deathScores.map((s) => s.value), "%");
+    }
+    renderCensusExplorer($root, scales, "nation");
+    enhanceNation($root, doc, scales);
+    wireLinks($root);
+  }
+
+  // ------------------------------------------------------------- RENDER: REGION
+
+  async function renderRegion(name) {
+    const doc = await fetchRegionMain(name);
+    const tpl = document.getElementById("tpl-region").content.cloneNode(true);
+    const root = tpl.querySelector(".dossier");
+
+    fillImg(root, "flag", text(doc, "FLAG") || text(doc, "BANNERURL"));
+
+    const founder = text(doc, "FOUNDER");
+    const badge = root.querySelector('[data-f="founder-badge"]');
+    if (!founder || founder === "0") { badge.textContent = "Founderless"; badge.classList.add("is-offline"); }
+    else { badge.textContent = "Founded Region"; badge.classList.add("is-online"); }
+
+    const tags = Array.from(doc.querySelectorAll("TAGS TAG")).map((t) => t.textContent.trim()).filter(Boolean);
+    fill(root, "tags", tags.slice(0, 4).join(" · ") || "Region");
+    fill(root, "name", text(doc, "NAME"));
+    fill(root, "power", text(doc, "POWER"));
+
+    fill(root, "founded", text(doc, "FOUNDED"));
+    fill(root, "founder", founder && founder !== "0" ? founder.replace(/_/g, " ") : "None");
+    const governorName = text(doc, "GOVERNOR");
+    const governorTitle = text(doc, "GOVERNORTITLE");
+    fill(root, "governor", governorName && governorName !== "0" ? governorName.replace(/_/g, " ") + (governorTitle ? ` (${governorTitle})` : "") : "None");
+    const delegate = text(doc, "DELEGATE");
+    fill(root, "delegate", delegate && delegate !== "0" ? delegate.replace(/_/g, " ") : "None");
+    fill(root, "delegatevotes", text(doc, "DELEGATEVOTES"));
+    fill(root, "numnations", enLocale(text(doc, "NUMNATIONS") || 0));
+    fill(root, "numwanations", enLocale(text(doc, "NUMWANATIONS") || 0));
+    const lastupdate = Number(text(doc, "LASTUPDATE"));
+    fill(root, "lastupdate", lastupdate ? fmtDate(lastupdate) : "");
+
+    // additional public region data
+    const frontier = text(doc, "FRONTIER");
+    fill(root, "frontier", frontier === "1" ? "Open" : frontier === "0" ? "Closed" : "");
+    fill(root, "magnetism", text(doc, "MAGNETISM"));
+
+    const banlist = Array.from(doc.querySelectorAll("BANLIST NATION")).map((n) => n.textContent.trim()).filter(Boolean);
+    if (banlist.length) {
+      root.querySelector('[data-f="banlist-wrap"]').hidden = false;
+      fill(root, "ban-count", enLocale(banlist.length));
+      const wrap = root.querySelector('[data-f="banlist"]');
+      banlist.forEach((n) => wrap.appendChild(makeChip(n.replace(/_/g, " "))));
+    }
+    const recruiters = (text(doc, "RECRUITERS") || "").split(",").map((s) => s.trim().replace(/_/g, " ")).filter(Boolean);
+    if (recruiters.length) {
+      root.querySelector('[data-f="recruiters-wrap"]').hidden = false;
+      const wrap = root.querySelector('[data-f="recruiters"]');
+      recruiters.forEach((n) => wrap.appendChild(makeChip(n)));
+    }
+
+    const factbookRaw = stripBBCode(text(doc, "FACTBOOK"));
+    fill(root, "factbook", factbookRaw ? factbookRaw.slice(0, 420) + (factbookRaw.length > 420 ? "…" : "") : "", "");
+
+    fill(root, "side-population", enLocale(text(doc, "NUMNATIONS") || 0));
+    fill(root, "side-founded", text(doc, "FOUNDED"));
+    fill(root, "side-delegate", delegate && delegate !== "0" ? delegate.replace(/_/g, " ") : "None");
+
+    const authLetters = (text(doc, "DELEGATEAUTH") || "").split("");
+    if (authLetters.length) {
+      root.querySelector('[data-f="delegateauth-wrap"]').hidden = false;
+      const wrap = root.querySelector('[data-f="delegateauth-list"]');
+      authLetters.forEach((l) => { if (AUTHORITY_MAP[l]) wrap.appendChild(makeChip(AUTHORITY_MAP[l])); });
+    }
+
+    const officerEls = Array.from(doc.querySelectorAll("OFFICERS OFFICER"));
+    if (officerEls.length) {
+      root.querySelector('[data-f="officers-section"]').hidden = false;
+      const list = root.querySelector('[data-f="officers-list"]');
+      officerEls.forEach((o) => {
+        const nm = (o.querySelector("NATION")?.textContent || "").replace(/_/g, " ");
+        const office = o.querySelector("OFFICE")?.textContent?.trim() || "Officer";
+        const authLetters2 = (o.querySelector("AUTHORITY")?.textContent || "").split("").map((l) => AUTHORITY_MAP[l]).filter(Boolean).join(", ");
+        const li = document.createElement("li");
+        const span = document.createElement("span"); span.className = "log-text";
+        const strong = document.createElement("b"); strong.textContent = nm || "Unknown";
+        span.append(strong, document.createTextNode(` — ${office}` + (authLetters2 ? ` (${authLetters2})` : "")));
+        li.appendChild(span);
+        list.appendChild(li);
+      });
+    }
+
+    const scales = parseCensusScales(doc);
+    const byId = Object.fromEntries(scales.map((s) => [s.id, s]));
+    const civilScore = byId[0]?.score ?? 0, econScore = byId[1]?.score ?? 0, polScore = byId[2]?.score ?? 0;
+    fill(root, "fr-civil", Number.isFinite(civilScore) ? civilScore.toFixed(1) : "—");
+    fill(root, "fr-econ", Number.isFinite(econScore) ? econScore.toFixed(1) : "—");
+    fill(root, "fr-pol", Number.isFinite(polScore) ? polScore.toFixed(1) : "—");
+
+    const embassyEls = Array.from(doc.querySelectorAll("EMBASSIES EMBASSY"));
+    fill(root, "embassy-count", enLocale(embassyEls.length));
+    const embWrap = root.querySelector('[data-f="embassies"]');
+    const typeLabel = { pending: "pending", invited: "invited", rejected: "rejected", closing: "closing" };
+    if (embassyEls.length) {
+      embassyEls.forEach((e) => {
+        const type = e.getAttribute("type");
+        const suffix = type && typeLabel[type] ? ` (${typeLabel[type]})` : "";
+        embWrap.appendChild(makeChip(e.textContent.trim().replace(/_/g, " ") + suffix));
+      });
+    } else { embWrap.appendChild(makeChip("No embassies")); }
+
+
+    const happeningsList = root.querySelector('[data-f="happenings"]');
+    const events = Array.from(doc.querySelectorAll("HAPPENINGS EVENT"));
+    if (events.length) {
+      events.slice(0, 12).forEach((ev) => happeningsList.appendChild(makeLogItem(fmtDate(ev.querySelector("TIMESTAMP")?.textContent), stripBBCode(ev.querySelector("TEXT")?.textContent || ""))));
+    } else { happeningsList.innerHTML = '<li class="muted">No recent public activity recorded.</li>'; }
+
+    // regional history (electoral / political archive)
+    const histList = root.querySelector('[data-f="history"]');
+    const histEvents = Array.from(doc.querySelectorAll("HISTORY EVENT"));
+    if (histEvents.length && histList) {
+      root.querySelector('[data-f="history-section"]').hidden = false;
+      histEvents.slice(0, 12).forEach((ev) => histList.appendChild(makeLogItem(fmtDate(ev.querySelector("TIMESTAMP")?.textContent), stripBBCode(ev.querySelector("TEXT")?.textContent || ""))));
+    }
+
+    const posts = Array.from(doc.querySelectorAll("MESSAGES POST")).filter((p) => (p.querySelector("STATUS")?.textContent || "0") === "0");
+    if (posts.length) {
+      root.querySelector('[data-f="rmb-section"]').hidden = false;
+      const feed = root.querySelector('[data-f="messages"]');
+      posts.slice(-10).reverse().forEach((p) => {
+        const nation = (p.querySelector("NATION")?.textContent || "").replace(/_/g, " ");
+        const msg = stripBBCode(p.querySelector("MESSAGE")?.textContent || "").slice(0, 220);
+        feed.appendChild(makeLogItem(fmtDate(p.querySelector("TIMESTAMP")?.textContent), `${nation}: ${msg}`));
+      });
+    }
+
+    const nationsRaw = text(doc, "NATIONS");
+    const nationNames = nationsRaw ? nationsRaw.split(":").filter(Boolean) : [];
+    fill(root, "roster-count", enLocale(nationNames.length));
+    const rosterWrap = root.querySelector('[data-f="roster"]');
+    const rosterBtn = root.querySelector('[data-action="toggle-roster"]');
+    const ROSTER_CAP = 300;
+    let rosterBuilt = false;
+    rosterBtn.addEventListener("click", () => {
+      if (!rosterBuilt) {
+        rosterBuilt = true;
+        nationNames.slice(0, ROSTER_CAP).forEach((n) => rosterWrap.appendChild(makeChip(n.replace(/_/g, " "))));
+        if (nationNames.length > ROSTER_CAP) rosterWrap.appendChild(makeChip(`+ ${enLocale(nationNames.length - ROSTER_CAP)} more not shown`));
+      }
+      rosterWrap.hidden = !rosterWrap.hidden;
+      rosterBtn.textContent = rosterWrap.hidden ? "Show full roster" : "Hide roster";
+    });
+
+    $root.innerHTML = ""; $root.appendChild(tpl); destroyCharts();
+    renderRadar("chart-freedom-region", ["Civil Rights", "Economy", "Political Freedom"], [civilScore || 0, econScore || 0, polScore || 0]);
+    renderCensusExplorer($root, scales, "region");
+    enhanceRegion($root, doc, scales);
+    wireLinks($root);
+
+  }
+
+  // ----------------------------------------------------------------- WORLD
+
+  async function loadWorldTicker() {
+    try {
+      const doc = await fetchXML(buildUrl({ q: "numnations+numregions" }));
+      const nations = enLocale(text(doc, "NUMNATIONS") || 0);
+      const regions = enLocale(text(doc, "NUMREGIONS") || 0);
+      document.getElementById("world-ticker").textContent = `${nations} nations online · ${regions} regions`;
+    } catch (_) { document.getElementById("world-ticker").textContent = "World archive unreachable"; }
+  }
+
+  function tickClock() {
+    const el = document.getElementById("live-clock");
+    const now = new Date();
+    el.textContent = now.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" }) + " · " + now.toLocaleTimeString("en-US");
+  }
+
+  // ------------------------------------------------------------------ FORM
+
+  let mode = "nation";
+  let spotNation = null;
+  let spotRegion = null;
+  const form = document.getElementById("lookup-form");
+  const input = document.getElementById("query-input");
+  const prefix = document.getElementById("lookup-prefix");
+
+  function setPlaceholder() {
+    const example = mode === "nation"
+      ? (spotNation ? "e.g. " + spotNation : "e.g. testlandia")
+      : (spotRegion ? "e.g. " + spotRegion : "e.g. the_rejected_realms");
+    input.placeholder = example;
+  }
+
+  function setMode(nextMode) {
+    mode = nextMode;
+    document.querySelectorAll(".tab[data-mode]").forEach((b) => {
+      const active = b.dataset.mode === mode;
+      b.classList.toggle("is-active", active);
+      b.setAttribute("aria-selected", String(active));
+    });
+    prefix.textContent = mode + ":";
+    setPlaceholder();
+  }
+
+  document.querySelectorAll(".tab[data-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => setMode(btn.dataset.mode));
+  });
+
+  // Reusable lookup used by the search form, the of-the-day cards, and compare.
+  async function openDossier(nextMode, name) {
+    if (!name) return;
+    if (nextMode) setMode(nextMode);
+    hideBanner();
+    $root.innerHTML = "";
+    showBanner(`Opening dossier for "${name}"…`);
+    try {
+      if (mode === "nation") await renderNation(name); else await renderRegion(name);
+      hideBanner();
+      if (typeof location.hash === "string") { try { history.replaceState(null, "", " "); } catch (_) {} }
+      document.getElementById("dossier-root").scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      showBanner(err instanceof NSApiError ? err.message : (err.message || "Unexpected error while fetching data."), "error");
+    }
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const value = input.value.trim();
+    if (!value) return;
+    openDossier(null, value);
+  });
+
+  // =========================================================================
+  //  NEW FEATURES
+  //  Political Compass + ideology, clickable NationStates links, compare
+  //  overlay, economy report, and Nation/Region of the Day.
+  // =========================================================================
+
+  // ---- NATIONSTATES LINK HELPERS ------------------------------------------
+  const NS_NATION = (n) => `https://www.nationstates.net/nation=${n}`;
+  const NS_REGION = (r) => `https://www.nationstates.net/region=${r}`;
+  const NS_FACTBOOK = (n) => `https://www.nationstates.net/nation=${n}/detail`;
+  const nsName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, "_");
+
+  // Escape user/API-controlled strings before they are spliced into innerHTML.
+  // Prevents Cross-Site Scripting (XSS) when a name/policy/API value contains HTML.
+  function esc(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+  // Only allow http(s) URLs (used for flags/banners that we splice into markup).
+  function safeUrl(url) {
+    if (!url) return "";
+    return /^https?:\/\//i.test(url) ? url : "";
+  }
+
+  // Replace the text of a [data-f] element with a hyperlink to NationStates.
+  function linkField(root, field, href, keepText) {
+    const el = root.querySelector(`[data-f="${field}"]`);
+    if (!el) return;
+    const label = keepText || el.textContent;
+    if (!label || label === "—") return;
+    const a = document.createElement("a");
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = label;
+    el.textContent = "";
+    el.appendChild(a);
+  }
+
+  // ---- POLITICAL COMPASS ---------------------------------------------------
+  // X axis: economic left-right (from the Economy census).
+  // Y axis: authoritarian-libertarian (from Civil Rights + Political Freedom).
+  function clampCompass(v) { return Math.max(-92, Math.min(92, v)); }
+
+  // Position model. X = economic left-right, Y = authoritarian-libertarian.
+  // X is driven primarily by the production-sector split (state-owned vs private
+  // industry), because the Economy census measures output rather than market
+  // freedom. Y comes from Civil Rights and Political Freedom, nudged by Gov. Size.
+  function compassPoint(scales, extras) {
+    const byId = Object.fromEntries(scales.map((s) => [s.id, s]));
+    const civil = byId[0]?.score ?? 50;
+    const econ = byId[1]?.score ?? 50;
+    const pol = byId[2]?.score ?? 50;
+    const govtSize = byId[27]?.score; // Government Size census (optional)
+
+    let x = (econ - 50) * 2;                       // base economic axis (fallback)
+    let y = ((civil + pol) / 2 - 50) * 2;          // base authorit.-libert.
+
+    // The Economy census measures OUTPUT, not market freedom: a command economy can
+    // still have a "Powerhouse" score. So the economic axis is driven primarily by the
+    // production-sector split (state-owned vs private), which is the real signal of a
+    // market or planned economy. The census only nudges it.
+    if (extras && extras.sectors) {
+      const s = extras.sectors;
+      const stateShare = (s.state || 0);
+      const privateShare = (s.private || 0);
+      const black = (s.black || 0);
+      // % of the economy in market hands vs state hands.
+      const marketShare = privateShare + black;
+      const total = marketShare + stateShare;
+      if (total > 0) {
+        // -100 (fully state) .. +100 (fully market)
+        const sectorLean = (marketShare - stateShare) / total;   // -1..1
+        // The economy-score base only contributes when the split is ambiguous.
+        const blend = Math.abs(sectorLean) > 0.25 ? 0.9 : 0.45;
+        x = sectorLean * 92 * blend + (econ - 50) * (1 - blend);
+      }
+    }
+    // A large government apparatus nudges toward the authoritarian pole.
+    if (Number.isFinite(govtSize)) y -= (govtSize - 50) * 0.6;
+
+    return {
+      x: clampCompass(x),
+      y: clampCompass(y),
+      civil, econ, pol, govtSize,
+      // Social progressiveness: average of civil liberties and political freedom.
+      progressive: (civil + pol) / 2
+    };
+  }
+
+  // Pull the production-sector split (% of GDP) used to refine the economic axis.
+  function sectorSplit(doc) {
+    const el = doc.querySelector("SECTORS");
+    if (!el) return null;
+    const raw = {};
+    Array.from(el.children).forEach((c) => {
+      if (c.tagName === "BLACKMARKET") raw.black = parseFloat(c.textContent) || 0;
+      else if (c.tagName === "GOVERNMENT") raw.state = parseFloat(c.textContent) || 0;
+      else if (c.tagName === "INDUSTRY") raw.private = parseFloat(c.textContent) || 0;
+      else if (c.tagName === "PUBLIC") raw.state = (raw.state || 0) + (parseFloat(c.textContent) || 0);
+    });
+    return (raw.state !== undefined || raw.private !== undefined) ? raw : null;
+  }
+
+  // Nine-zone ideology territories (a refinement of the classic 4 quadrants).
+  function compassTerritory(p) {
+    const xz = p.x < -33 ? "left" : p.x > 33 ? "right" : "center";
+    const yz = p.y < -33 ? "authoritarian" : p.y > 33 ? "libertarian" : "centrist";
+    const names = {
+      "authoritarian,left": "Authoritarian Left", "authoritarian,center": "Authoritarian", "authoritarian,right": "Authoritarian Right",
+      "centrist,left": "Centre-Left", "centrist,center": "Centrist", "centrist,right": "Centre-Right",
+      "libertarian,left": "Libertarian Left", "libertarian,center": "Libertarian", "libertarian,right": "Libertarian Right"
+    };
+    return { key: `${yz},${xz}`, name: names[`${yz},${xz}`] };
+  }
+  function quadrantOf(p) { return compassTerritory(p).name; }
+
+  // Specific ideology classifier. The compass gives a broad territory; this digs
+  // deeper using Gov. Size, the production-sector split, and budget priorities to
+  // name a concrete school of political thought.
+  function specificIdeology(p, govtSpending, sectors, policies) {
+    const civil = p.civil, pol = p.pol, econ = p.econ;
+    const govtSize = Number.isFinite(p.govtSize) ? p.govtSize : 50;
+    const x = p.x, y = p.y; // x: econ left-right, y: authorit.-libert.
+    // The Economy census measures OUTPUT, so a state-run economy can still score
+    // "laissez-faire" on it. Label the economy from the actual sector split when we
+    // have it; fall back to the census score only if the split is unavailable.
+    let econWord;
+    if (sectors && Number.isFinite(sectors.state) && Number.isFinite(sectors.private)) {
+      const marketSH = (sectors.private || 0) + (sectors.black || 0);
+      const stateSH = sectors.state || 0;
+      const marketPct = marketSH + stateSH > 0 ? marketSH / (marketSH + stateSH) : 0.5;
+      econWord = marketPct >= 0.66 ? "laissez-faire" : marketPct >= 0.4 ? "mixed-market" : "state-planned";
+    } else {
+      econWord = econ >= 66 ? "laissez-faire" : econ >= 40 ? "mixed-market" : "planned";
+    }
+    const freeWord = pol >= 66 ? "liberal" : pol >= 40 ? "moderate" : "restrictive";
+
+    // candidate scores; higher = better match. Returns {name, family, note}.
+    const C = [];
+    const add = (name, family, w, note) => C.push({ name, family, w, note });
+
+    // ---- RIGHT (market-oriented) ----
+    if (x > 20) {
+      if (y > 55) add("Anarcho-Capitalism", "Libertarian Right", y - Math.abs(x - 80) * 0.3, "Private, voluntary society with no state; all services market-provided.");
+      if (y > 40) add("Minarchism", "Libertarian Right", y - Math.abs(x - 65) * 0.3 - govtSize * 0.05, "Night-watchman state limited to courts, police and defence.");
+      if (y > 30) add("Classical Liberalism", "Libertarian Right", y * 0.5 + Math.abs(x - 55) * -0.1, "Free markets, minimal law, strong individual rights.");
+      if (y > 10) add("Libertarian Conservatism", "Libertarian Right", y * 0.4, "Markets freed, moral tradition preserved.");
+      if (y <= 30) add("Conservative Liberalism", "Centre-Right", -y + 40, "Free markets, cautious on change and big government.");
+    }
+    // ---- LEFT (state/collectivist) ----
+    if (x < -20) {
+      if (y > 55) add("Anarcho-Communism", "Libertarian Left", y - Math.abs(x + 80) * 0.3, "Stateless, classless, common ownership and direct democracy.");
+      if (y > 45) add("Libertarian Socialism", "Libertarian Left", y - Math.abs(x + 60) * 0.3, "Worker self-management, federal voluntarism, no boss class.");
+      if (y > 35) add("Social Ecology", "Libertarian Left", y * 0.5, "Egalitarian, ecological and anti-hierarchical socialism.");
+      if (y > 15) add("Democratic Socialism", "Centre-Left", -y + 55 + (govtSize > 60 ? 8 : 0), "Social ownership pursued through democratic elections.");
+    }
+    // ---- AUTHORITARIAN ----
+    if (y < -30) {
+      if (x > 25) add("Authoritarian Capitalism", "Authoritarian Right", -y + Math.abs(x - 45) * -0.2, "Markets kept, civil liberties curtailed.");
+      if (x > 10 && x <= 25) add("National Conservatism", "Authoritarian Right", -y + 10, "Tradition and order over individual licence.");
+      if (x <= -25) {
+        const w = -y + Math.abs(x + 45) * -0.2 + (govtSize > 65 ? 8 : 0);
+        if (govtSize > 70) add("Totalitarian Left (State Socialism)", "Authoritarian Left", w + 4, "Single-party, command economy, full state control.");
+        add("Authoritarian Socialism", "Authoritarian Left", w, "Central planning with strict party control of society.");
+      }
+      if (x > -25 && x <= 10) add("Authoritarianism", "Authoritarian", -y + 5, "Concentrated power, little tolerance for dissent.");
+    }
+    // ---- CENTRIST ----
+    if (x >= -20 && x <= 20 && y >= -30 && y <= 30) {
+      add("Centrism", "Centrist", 60 - Math.abs(x) * 0.5 - Math.abs(y) * 0.5, "Pragmatic middle: mixed markets and moderate welfare.");
+      if (govtSize > 58) add("Social Democracy", "Centre", 40 + (govtSize - 58) * 0.6, "Strong welfare state, regulated markets, unions.");
+      if (govtSize < 40) add("Neoliberalism", "Centre", 40 + (40 - govtSize) * 0.4, "Privatisation, deregulation, smaller state.");
+    }
+    // ---- FALLBACK by quadrant ----
+    if (!C.length) add(compassTerritory(p).name, compassTerritory(p).name, 0, "General orientation.");
+
+    // Nudge with the production-sector split.
+    if (sectors && Number.isFinite(sectors.state) && Number.isFinite(sectors.private)) {
+      const stateHeavy = sectors.state > sectors.private + 20;
+      const privateHeavy = sectors.private > sectors.state + 20;
+      C.forEach((c) => {
+        if (stateHeavy && /Social|Commun|Left|State/.test(c.name)) c.w += 12;
+        if (privateHeavy && /Capital|Libertarian|Market|Minarch/.test(c.name)) c.w += 12;
+      });
+    }
+
+    // Prefer the top match.
+    const best = C.sort((a, b) => b.w - a.w)[0];
+    let desc = `Estimated ideology: ${best.name} (${best.family}). ` + best.note +
+      ` This entity runs a ${econWord} economy and a ${freeWord} civil-liberties regime.`;
+    if (govtSpending && govtSpending.length) {
+      const sorted = govtSpending.slice().sort((a, b) => b.value - a.value);
+      const top = sorted[0];
+      desc += ` Its top budget priorities are ${top.label.toLowerCase()} (${top.value.toFixed(1)}%), ` +
+        (sorted[1] ? `${sorted[1].label.toLowerCase()} (${sorted[1].value.toFixed(1)}%)` : "") +
+        (sorted[2] ? `, ${sorted[2].label.toLowerCase()} (${sorted[2].value.toFixed(1)}%)` : "") + ".";
+    }
+    if (policies && policies.length) desc += ` Enshrined policies: ${policies.slice(0, 4).join(", ")}.`;
+    desc += ` (Civil Rights ${civil.toFixed(0)} · Economy ${econ.toFixed(0)} · Political Freedom ${pol.toFixed(0)}` + (Number.isFinite(p.govtSize) ? ` · Gov. Size ${p.govtSize.toFixed(0)}` : "") + `.)`;
+    return { family: best.family, name: best.name, desc };
+  }
+
+  function ideologyFor(p, govtSpending, policies, sectors) {
+    const r = specificIdeology(p, govtSpending, sectors, policies);
+    return { quadrant: r.family, name: r.name, desc: r.desc };
+  }
+
+  // Shared backdrop: 3x3 territory map + grid + labelled axes + tick marks.
+  function compassBackdrop(ctx, w, h, cx, cy, rx, ry) {
+    const T = [
+      { c: "#D21F3C", zone: "authoritarian,left" },
+      { c: "#A0315F", zone: "authoritarian,center" },
+      { c: "#1F5FA8", zone: "authoritarian,right" },
+      { c: "#E68A2E", zone: "centrist,left" },
+      { c: "#7A7F84", zone: "centrist,center" },
+      { c: "#2E7FB8", zone: "centrist,right" },
+      { c: "#57B23F", zone: "libertarian,left" },
+      { c: "#3FA88A", zone: "libertarian,center" },
+      { c: "#E0B01E", zone: "libertarian,right" }
+    ];
+    // 3 columns x 3 rows, top row = authoritarian (y<0)
+    const colW = rx * 2 / 3, rowH = ry * 2 / 3;
+    ctx.globalAlpha = 0.85;
+    T.forEach((t) => {
+      const [yz, xz] = t.zone.split(",");
+      const col = { left: 0, center: 1, right: 2 }[xz];
+      const row = { authoritarian: 0, centrist: 1, libertarian: 2 }[yz];
+      ctx.fillStyle = t.c;
+      ctx.fillRect(cx - rx + col * colW, cy - ry + row * rowH, colW, rowH);
+    });
+    ctx.globalAlpha = 1;
+
+    // grid lines
+    ctx.strokeStyle = "rgba(255,255,255,0.75)"; ctx.lineWidth = 1;
+    for (let i = 1; i < 3; i++) {
+      ctx.beginPath(); ctx.moveTo(cx - rx + i * colW, cy - ry); ctx.lineTo(cx - rx + i * colW, cy + ry); ctx.stroke();
+    }
+
+    // axes
+    ctx.strokeStyle = "#5b6770"; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(cx - rx, cy); ctx.lineTo(cx + rx, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, cy - ry); ctx.lineTo(cx, cy + ry); ctx.stroke();
+
+
+    // tick marks (at -66 / -33 / 0 / 33 / 66)
+    ctx.strokeStyle = "#8a97a0"; ctx.lineWidth = 1;
+    [-66, -33, 0, 33, 66].forEach((t) => {
+      const tx = cx + (t / 100) * rx;
+      ctx.beginPath(); ctx.moveTo(tx, cy - 3); ctx.lineTo(tx, cy + 3); ctx.stroke();
+      const ty = cy + (t / 100) * ry;
+      ctx.beginPath(); ctx.moveTo(cx - 3, ty); ctx.lineTo(cx + 3, ty); ctx.stroke();
+    });
+
+    // axis labels
+    ctx.fillStyle = "rgba(70,78,86,0.8)"; ctx.font = "bold 10px Verdana, sans-serif"; ctx.textAlign = "left";
+    ctx.fillText("Authoritarian", cx + 4, cy - ry + 11);
+    ctx.fillText("Libertarian", cx + 4, cy + ry - 2);
+    ctx.textAlign = "center";
+    ctx.fillText("Left", cx - rx + 4, cy - 6);
+    ctx.fillText("Right", cx + rx - 14, cy - 6);
+  }
+
+  // Territory name colour is used to tint the point for readability.
+  function territoryColor(p) {
+    const k = compassTerritory(p).key;
+    const map = {
+      "authoritarian,left": "#D21F3C", "authoritarian,center": "#A0315F", "authoritarian,right": "#1F5FA8",
+      "centrist,left": "#E68A2E", "centrist,center": "#7A7F84", "centrist,right": "#2E7FB8",
+      "libertarian,left": "#57B23F", "libertarian,center": "#3FA88A", "libertarian,right": "#E0B01E"
+    };
+    return map[k] || "#0B3D66";
+  }
+
+  // Fill the "Social Progressiveness" gauge from the compass point.
+  function fillProgressive(root, p) {
+    const val = Math.round(p.progressive || 0);
+    const label = val >= 75 ? "Highly progressive" : val >= 55 ? "Progressive" : val >= 40 ? "Moderate" : val >= 25 ? "Slightly conservative" : "Very conservative";
+    fill(root, "progressive", `${val}% — ${label}`);
+    const f = root.querySelector('[data-f="progressive-fill"]');
+    if (f) { f.style.width = Math.max(2, Math.min(100, val)) + "%"; f.classList.toggle("is-low", val < 40); }
+  }
+
+  function renderCompassLegend(root) {
+    const el = root.querySelector('[data-f="compass-legend"]');
+    if (!el) return;
+    const items = [
+      ["Auth. Left", "#D21F3C"], ["Conserv.", "#1F5FA8"], ["Centre", "#7A7F84"],
+      ["Centre-L", "#E68A2E"], ["Centre-R", "#2E7FB8"], ["Lib. Left", "#57B23F"], ["Lib. Right", "#E0B01E"]
+    ];
+    el.innerHTML = "";
+    items.forEach(([label, col]) => {
+      const span = document.createElement("span");
+      const sw = document.createElement("i"); sw.style.background = col;
+      span.append(sw, document.createTextNode(label));
+      el.appendChild(span);
+    });
+  }
+
+  function drawCompass(canvasId, p) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || 320, h = canvas.clientHeight || 230;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+
+    const pad = 30, labelBand = 20;
+    const cx = w / 2, cy = h / 2;
+    const rx = (w / 2) - pad, ry = (h / 2) - (pad + labelBand / 2);
+
+    compassBackdrop(ctx, w, h, cx, cy, rx, ry);
+
+    // crosshair from the point to each axis
+    const px = cx + (p.x / 100) * rx;
+    const py = cy + (p.y / 100) * ry;
+    ctx.strokeStyle = "rgba(70,78,86,0.45)"; ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, py); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // halo + point
+    const col = territoryColor(p);
+    ctx.fillStyle = col; ctx.globalAlpha = 0.25;
+    ctx.beginPath(); ctx.arc(px, py, 13, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
+
+    // coordinate readout near the point
+    ctx.fillStyle = "rgba(40,46,52,0.9)"; ctx.font = "bold 9.5px Verdana, sans-serif"; ctx.textAlign = px > cx - rx / 2 ? "left" : "right";
+    const label = `${p.x > 0 ? "+" : ""}${Math.round(p.x)} / ${p.y > 0 ? "+" : ""}${Math.round(p.y)}`;
+    ctx.fillText(label, px + (px > cx ? 10 : -10), py - 6);
+  }
+
+  // Dual-point advanced compass used by the compare view.
+  // Compact political-compass embed for the identity box. No axis labels or
+  // coordinate readout — just the saturated territory map and the point.
+  function drawCompassMini(canvas, p) {
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || 180, h = canvas.clientHeight || 104;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2, cy = h / 2;
+    const rx = (w / 2) - 3, ry = (h / 2) - 3;
+    // saturated 3x3 territory map
+    const T = [
+      { c: "#D21F3C", zone: "authoritarian,left" },
+      { c: "#A0315F", zone: "authoritarian,center" },
+      { c: "#1F5FA8", zone: "authoritarian,right" },
+      { c: "#E68A2E", zone: "centrist,left" },
+      { c: "#7A7F84", zone: "centrist,center" },
+      { c: "#2E7FB8", zone: "centrist,right" },
+      { c: "#57B23F", zone: "libertarian,left" },
+      { c: "#3FA88A", zone: "libertarian,center" },
+      { c: "#E0B01E", zone: "libertarian,right" }
+    ];
+    const colW = rx * 2 / 3, rowH = ry * 2 / 3;
+    ctx.globalAlpha = 0.9;
+    T.forEach((t) => {
+      const [yz, xz] = t.zone.split(",");
+      const col = { left: 0, center: 1, right: 2 }[xz];
+      const row = { authoritarian: 0, centrist: 1, libertarian: 2 }[yz];
+      ctx.fillStyle = t.c;
+      ctx.fillRect(cx - rx + col * colW, cy - ry + row * rowH, colW, rowH);
+    });
+    ctx.globalAlpha = 1;
+    // axes
+    ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - rx, cy); ctx.lineTo(cx + rx, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, cy - ry); ctx.lineTo(cx, cy + ry); ctx.stroke();
+    // point
+    const px = cx + (p.x / 100) * rx, py = cy + (p.y / 100) * ry;
+    const col = territoryColor(p);
+    ctx.fillStyle = col; ctx.globalAlpha = 0.3; ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(px, py, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+
+  function drawCompassCmp(canvas, pA, pB, nameA, nameB) {
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || 320, h = canvas.clientHeight || 230;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+
+    const pad = 30, labelBand = 20;
+    const cx = w / 2, cy = h / 2;
+    const rx = (w / 2) - pad, ry = (h / 2) - (pad + labelBand / 2);
+
+    compassBackdrop(ctx, w, h, cx, cy, rx, ry);
+
+    const pts = [{ p: pA, c: CMP_COLORS.a }, { p: pB, c: CMP_COLORS.b }];
+    // connecting line
+    ctx.strokeStyle = "rgba(90,100,110,0.55)"; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    pts.forEach((o, i) => {
+      const x = cx + (o.p.x / 100) * rx;
+      const y = cy + (o.p.y / 100) * ry;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    // points
+    pts.forEach((o) => {
+      const x = cx + (o.p.x / 100) * rx;
+      const y = cy + (o.p.y / 100) * ry;
+      ctx.fillStyle = o.c; ctx.globalAlpha = 0.25;
+      ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = o.c; ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
+    });
+
+    // legend
+    ctx.textAlign = "left"; ctx.font = "bold 10px Verdana, sans-serif";
+    let ly = 14;
+    [[nameA, CMP_COLORS.a], [nameB, CMP_COLORS.b]].forEach(([nm, col]) => {
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(9, ly - 3, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#333"; ctx.fillText((nm || "").slice(0, 18), 17, ly);
+      ly += 14;
+    });
+  }
+
+  // ---- ECONOMY REPORT (NSEconomy-style model) ----------------------------
+  const ECON_MOD = { Frightening: 0.04, "All-Consuming": 0.03, Powerhouse: 0.02, Thriving: 0.02, "Very Strong": 0.01, Strong: 0.01, Good: 0, Reasonable: -0.01, Fair: -0.01, Developing: -0.02, Weak: -0.02, Fragile: -0.03, Struggling: -0.04, "Basket Case": -0.05, Imploded: -0.06 };
+  const PRODUCTION = { Frightening: 35000, "All-Consuming": 30000, Powerhouse: 25000, Thriving: 20000, "Very Strong": 15000, Strong: 10000, Good: 7500, Reasonable: 5000, Fair: 4000, Developing: 3000, Weak: 2000, Fragile: 1000, Struggling: 650, "Basket Case": 350, Imploded: 100 };
+
+  const CR_MOD_WE = { Frightening: -0.02, Excessive: 0.01, "World Benchmark": 0.05, Superb: 0.04, Excellent: 0.03, "Very Good": 0.02, Good: 0.01, Average: 0, "Below Average": -0.01, Some: -0.02, Few: -0.03, Rare: -0.04, "Unheard Of": -0.06, Outlawed: -0.08 };
+  const CR_MOD_CC = { Frightening: -0.01, Excessive: 0.01, "World Benchmark": 0.05, Superb: 0.04, Excellent: 0.03, "Very Good": 0.02, Good: 0.01, Average: 0, "Below Average": -0.01, Some: -0.02, Few: -0.04, Rare: -0.06, "Unheard Of": -0.08, Outlawed: -0.1 };
+  const PF_MOD_WE = { Corrupted: -0.01, "Widely Abused": 0, Excessive: 0.01, "World Benchmark": 0.02, Superb: 0.01, Excellent: 0.01, "Very Good": 0, Good: 0, Average: 0, "Below Average": -0.01, Some: -0.02, Few: -0.02, Rare: -0.04, "Unheard Of": -0.03, Outlawed: -0.04 };
+  const PF_MOD_GE = { Corrupted: -0.15, "Widely Abused": -0.1, Excessive: -0.05, "World Benchmark": -0.01, Superb: -0.02, Excellent: -0.02, "Very Good": -0.03, Good: -0.04, Average: -0.04, "Below Average": -0.05, Some: -0.06, Few: -0.08, Rare: -0.1, "Unheard Of": -0.15, Outlawed: -0.2 };
+
+  function taxModifier(tax) {
+    if (tax <= 0) return 0.02;
+    const brackets = [[1, 10, 0, -0.02], [11, 20, -0.02, -0.04], [21, 30, -0.04, -0.06], [31, 40, -0.06, -0.08], [41, 50, -0.08, -0.1], [51, 60, -0.1, -0.12], [61, 70, -0.12, -0.14], [71, 80, -0.14, -0.16], [81, 90, -0.16, -0.18], [91, 100, -0.18, -0.2]];
+    const b = brackets.find((br) => tax >= br[0] && tax <= br[1]);
+    if (!b) return 0;
+    const [lo, hi, vLo, vHi] = b;
+    return vLo + (vHi - vLo) * ((tax - lo) / (hi - lo));
+  }
+
+  function adminCurve(adminBudget) {
+    const x = adminBudget; // as a decimal (0..1)
+    if (x === 0.3) return 1;
+    return 1 - x * Math.sign(x - 0.3) * Math.cbrt(Math.abs(x - 0.3)) + 0.2 * x;
+  }
+
+  function fmtBig(n) {
+    if (!Number.isFinite(n)) return "—";
+    const a = Math.abs(n);
+    if (a >= 1e15) return (n / 1e15).toFixed(2) + "Q";
+    if (a >= 1e12) return (n / 1e12).toFixed(2) + "T";
+    if (a >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (a >= 1e3) return (n / 1e3).toFixed(1) + "K";
+    return Number(n).toFixed(2);
+  }
+
+  function economyReport(doc, pop, tax, govtScores) {
+    const econWord = text(doc, "ECONOMY");
+    const crWord = text(doc, "CIVILRIGHTS");
+    const pfWord = text(doc, "POLITICALFREEDOM");
+    const population = Number(pop) * 1e6; // population shard is in millions
+
+    const eMod = ECON_MOD[econWord] ?? 0;
+    const crWE = CR_MOD_WE[crWord] ?? 0;
+    const crCC = CR_MOD_CC[crWord] ?? 0;
+    const pfWE = PF_MOD_WE[pfWord] ?? 0;
+    const pfGE = PF_MOD_GE[pfWord] ?? 0;
+    const tMod = taxModifier(tax);
+    const production = PRODUCTION[econWord] ?? 7500;
+
+    const workerEnthusiasm = 1 + crWE + pfWE + tMod;
+    const consumerConfidence = 1 + eMod + crCC;
+
+    const adminPct = (govtScores.find((s) => s.label === "Administration")?.value || 20);
+    const adminBudget = adminPct / 100;
+    const govEfficiency = 1 + pfGE / (adminCurve(adminBudget) || 1);
+
+    const output = production * population * workerEnthusiasm * consumerConfidence;
+    const consumption = output * (1 - tax / 100);
+    const govBudget = output * govEfficiency * (tax / 100 + consumerConfidence / 10 + workerEnthusiasm / 40);
+    const govExpend = govBudget * govEfficiency;
+    const govWaste = govBudget - govExpend;
+    const imports = ((1 / consumerConfidence) / 8) * (consumption + govExpend);
+    // Exports/Net Trade need whole-region totals; model a self-consistent estimate from this nation's own figures.
+    const netTrade = imports * (consumerConfidence - 1);
+    const gdp = consumption + netTrade + govExpend;
+    const gdpCapita = gdp / (population || 1);
+    const exchangeRate = Math.sqrt((gdpCapita * production) / 404000000);
+    const unemp = Math.pow(gdpCapita - 37500, 2) * 1.25e-10 - 1.5e-6 * Math.abs(gdpCapita - 37500) + 0.03;
+
+    const bmConf = (govEfficiency + workerEnthusiasm + consumerConfidence) / 3;
+    const bmGrow = (1 / (bmConf || 1)) * 0.5 * output;
+    const bmShrink = (1 / (bmConf || 1)) * 0.75 * govWaste;
+    const bmEthics = -(1 / (bmConf || 1)) * 0.75 * govEfficiency;
+    const bmTax = output * 3 * (tax / 100) * (1 / (govEfficiency || 1));
+    const blackMarket = bmGrow - bmShrink + bmEthics + bmTax + govWaste;
+
+    return { workerEnthusiasm, consumerConfidence, govEfficiency, adminCurveValue: adminCurve(adminBudget), production, output, consumption, govBudget, govExpend, govWaste, imports, netTrade, gdp, gdpCapita, exchangeRate, unemployment: Math.max(0, unemp), blackMarket, govtScores };
+  }
+
+  function renderEconomy(root, e) {
+    fill(root, "e-gdp", `$${fmtBig(e.gdp)}`);
+    fill(root, "e-gdpcapita", `$${fmtBig(e.gdpCapita)}`);
+    fill(root, "e-income", `$${fmtBig(e.gdpCapita * 0.8)}`);
+    fill(root, "e-tax", e.tax);
+    fill(root, "e-output", `$${fmtBig(e.output)}`);
+    fill(root, "e-consumption", `$${fmtBig(e.consumption)}`);
+    fill(root, "e-govexp", `$${fmtBig(e.govExpend)}`);
+    fill(root, "e-nettrade", `$${fmtBig(e.netTrade)}`);
+    fill(root, "e-enthusiasm", `${e.workerEnthusiasm.toFixed(2)} ×`);
+    fill(root, "e-confidence", `${e.consumerConfidence.toFixed(2)} ×`);
+    fill(root, "e-goveff", `${e.govEfficiency.toFixed(2)} ×`);
+    fill(root, "e-unemployment", `${(e.unemployment * 100).toFixed(2)}%`);
+    fill(root, "e-exchangerate", fmtBig(e.exchangeRate));
+    fill(root, "e-blackmarket", `$${fmtBig(e.blackMarket)}`);
+  }
+
+  function renderEconomyChart(e) {
+    const el = document.getElementById("chart-economy");
+    if (!el || !CHART_AVAILABLE) return;
+    const labels = ["Output", "Consumption", "Gov. Budget", "Gov. Expend.", "Net Trade"];
+    const values = [e.output, e.consumption, e.govBudget, e.govExpend, e.netTrade];
+    const chart = new Chart(el, {
+      type: "bar",
+      data: { labels, datasets: [{ data: values.map((v) => v / Math.max(e.output, 1)), backgroundColor: PALETTE.slice(0, 5), borderRadius: 2, maxBarThickness: 34 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `$${fmtBig(values[c.dataIndex])}` } } },
+        scales: { y: { grid: { color: "#dde4e9" }, ticks: { callback: (v) => (v * 100).toFixed(0) + "%" }, title: { display: true, text: "% of Output" } }, x: { grid: { display: false } } }
+      }
+    });
+    activeCharts.push(chart);
+  }
+
+  // ---- ENHANCE A RENDERED DOSSIER (links + new sections) ------------------
+  function enhanceNation(root, doc, scales, name) {
+    // clicking the nation's own name opens its NationStates page
+    const nationName = text(doc, "NAME") || name;
+    if (nationName) linkField(root, "name", NS_NATION(nsName(nationName)));
+    const region = text(doc, "REGION");
+    if (region) linkField(root, "region", NS_REGION(nsName(region)));
+    if (region) linkField(root, "side-region", NS_REGION(nsName(region)));
+    // NOTE: LEADER and CAPITAL are free-text fields, not nation names,
+    // so they must NOT be auto-linked to NationStates nation pages.
+
+    // political compass
+    const p = compassPoint(scales, { sectors: sectorSplit(doc) });
+    const govtSpending = Array.from((doc.querySelector("GOVT")?.children || [])).map((c) => ({ label: humanizeTag(c.tagName), value: parseFloat(c.textContent) })).filter((s) => Number.isFinite(s.value));
+    const policies = Array.from(doc.querySelectorAll("POLICIES POLICY NAME")).map((n) => n.textContent.trim()).filter(Boolean);
+    const sectors = sectorSplit(doc);
+    const ideo = ideologyFor(p, govtSpending, policies, sectors);
+    drawCompass("chart-polcompass", p);
+    drawCompassMini(document.getElementById("chart-polcompass-mini"), p);
+    fill(root, "ideology", ideo.name || ideo.quadrant);
+    fill(root, "ideology-mini", ideo.name || ideo.quadrant);
+    fill(root, "ideology-desc", ideo.desc);
+    fillProgressive(root, p);
+    renderCompassLegend(root);
+
+    // economy report
+    const tax = Number(text(doc, "TAX")) || 0;
+    const e = economyReport(doc, text(doc, "POPULATION"), tax, govtSpending);
+    e.tax = `${enLocale(tax)}%`;
+    renderEconomy(root, e);
+    renderEconomyChart(e);
+  }
+
+  function enhanceRegion(root, doc, scales) {
+    // clicking the region's own name opens its NationStates page
+    const regionName = text(doc, "NAME");
+    if (regionName) linkField(root, "name", NS_REGION(nsName(regionName)));
+    const founder = text(doc, "FOUNDER");
+    if (founder && founder !== "0") linkField(root, "founder", NS_NATION(nsName(founder)));
+    const governorName = text(doc, "GOVERNOR");
+    if (governorName && governorName !== "0") linkField(root, "governor", NS_NATION(nsName(governorName)));
+    const delegate = text(doc, "DELEGATE");
+    if (delegate && delegate !== "0") linkField(root, "delegate", NS_NATION(nsName(delegate)));
+    linkField(root, "side-delegate", NS_NATION(nsName(delegate)));
+
+    const p = compassPoint(scales);
+    const ideo = ideologyFor(p);
+    drawCompass("chart-polcompass-region", p);
+    drawCompassMini(document.getElementById("chart-polcompass-region-mini"), p);
+    fill(root, "ideology", ideo.name || ideo.quadrant);
+    fill(root, "ideology-mini", ideo.name || ideo.quadrant);
+    fill(root, "ideology-desc", ideo.desc);
+    fillProgressive(root, p);
+    renderCompassLegend(root);
+  }
+
+  // make chips/roster/etc clickable
+  // Link free-text chips (embassies, rosters, policies, authorities, honors) to
+  // their NationStates page. The container data-f tells us the target kind.
+  function wireLinks(root) {
+    root.querySelectorAll(".chip").forEach((chip) => {
+      if (chip.dataset.linked) return;
+      const raw = chip.textContent.trim();
+      if (!raw || /^(\+|[+]?[0-9]+ more|No |None|Unknown|—)/.test(raw)) return;
+      const name = raw.split(" (")[0].replace(/,? more not shown$/, "").trim();
+      if (!name) return;
+      const container = chip.closest("[data-f]");
+      const cf = container ? container.getAttribute("data-f") : "";
+      // region-linked containers
+      const regionTargets = ["embassies", "delegateauth-list", "policies-list", "delegateauth"];
+      const nationTargets = ["roster", "officers-list", "delegateauth"];
+      let href = null;
+      if (cf === "embassies") href = NS_REGION(nsName(name));
+      else if (cf === "roster" || cf === "officers-list") href = NS_NATION(nsName(name));
+      else if (cf === "delegateauth-list" || cf === "policies-list") href = null; // not a clickable entity
+      if (!href) return;
+      const a = document.createElement("a");
+      a.href = href; a.target = "_blank"; a.rel = "noopener"; a.textContent = raw;
+      chip.textContent = ""; chip.appendChild(a); chip.dataset.linked = "1";
+    });
+  }
+
+  // ---- COMPARE -------------------------------------------------------------
+  const comparePanel = document.getElementById("compare-panel");
+  let compareMode = "nation";
+  document.querySelectorAll("#compare-panel .tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#compare-panel .tab").forEach((b) => { b.classList.remove("is-active"); b.setAttribute("aria-selected", "false"); });
+      btn.classList.add("is-active"); btn.setAttribute("aria-selected", "true");
+      compareMode = btn.dataset.cmpmode;
+    });
+  });
+
+  const CMP_COLORS = { a: "#2E5C82", b: "#C9A227" };
+
+  function cmpEntity(name, doc, p, side) {
+    const el = document.createElement("div");
+    el.className = `cmp-entity cmp-entity--${side}`;
+    const flag = safeUrl(text(doc, "FLAG") || text(doc, "BANNERURL"));
+    const nm = esc(text(doc, "NAME") || name);
+    if (flag) el.insertAdjacentHTML("beforeend", `<img src="${esc(flag)}" alt="" />`);
+    el.insertAdjacentHTML("beforeend", `<span class="cmp-entity__name">${nm}</span><span class="cmp-entity__quad">${quadrantOf(p)}</span>`);
+    return el;
+  }
+
+  // Build a metric row: label, A value, B value, and a winner mark (dot on the winning side).
+  function cmpRow(table, label, va, vb) {
+    const tr = document.createElement("tr");
+    const numA = parseFloat(String(va).replace(/[^0-9.\-]/g, ""));
+    const numB = parseFloat(String(vb).replace(/[^0-9.\-]/g, ""));
+    const aWins = Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB && numA > numB;
+    const bWins = Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB && numB > numA;
+    tr.innerHTML = `<td>${esc(label)}</td><td class="v ${aWins ? "cmp-winner" : ""}">${esc(va)}</td><td class="diff">${aWins ? "▸" : bWins ? "◂" : "="}</td><td class="v ${bWins ? "cmp-winner" : ""}">${esc(vb)}</td>`;
+    table.appendChild(tr);
+  }
+
+  async function compareRun() {
+    const a = document.getElementById("cmp-input-a").value.trim();
+    const b = document.getElementById("cmp-input-b").value.trim();
+    if (!a || !b) { showBanner("Enter two names to compare.", "warn"); return; }
+    hideBanner();
+    try {
+      const [da, db] = await Promise.all([
+        compareMode === "nation" ? fetchNation(a) : fetchRegionMain(a),
+        compareMode === "nation" ? fetchNation(b) : fetchRegionMain(b)
+      ]);
+      const sa = parseCensusScales(da), sb = parseCensusScales(db);
+      const pa = compassPoint(sa, { sectors: sectorSplit(da) });
+      const pb = compassPoint(sb, { sectors: sectorSplit(db) });
+      const byIdA = Object.fromEntries(sa.map((s) => [s.id, s]));
+      const byIdB = Object.fromEntries(sb.map((s) => [s.id, s]));
+      const nameA = text(da, "NAME") || a, nameB = text(db, "NAME") || b;
+
+      $root.innerHTML = ""; destroyCharts();
+      const wrap = document.createElement("div"); wrap.className = "cmp-result";
+
+      // header: flags + names + ideologies
+      const head = document.createElement("div"); head.className = "cmp-head";
+      head.appendChild(cmpEntity(nameA, da, pa, "a"));
+      const vs = document.createElement("div"); vs.className = "cmp-vs"; vs.textContent = "VS";
+      head.appendChild(vs);
+      head.appendChild(cmpEntity(nameB, db, pb, "b"));
+      wrap.appendChild(head);
+
+      // dual political compass + grouped metric chart
+      const grid = document.createElement("div"); grid.className = "cmp-grid2";
+      const c1 = document.createElement("div"); c1.className = "chart-box chart-box--square";
+      const cv1 = document.createElement("canvas"); cv1.id = "chart-cmp-compass"; c1.appendChild(cv1);
+      const c2 = document.createElement("div"); c2.className = "chart-box chart-box--square";
+      const cv2 = document.createElement("canvas"); cv2.id = "chart-cmp-radar"; c2.appendChild(cv2);
+      grid.appendChild(c1); grid.appendChild(c2);
+      wrap.appendChild(grid);
+
+      // comparison table
+      const tWrap = document.createElement("div"); tWrap.className = "cmp-table-wrap";
+      const table = document.createElement("table"); table.className = "cmp-table";
+      const headRow = document.createElement("tr");
+      headRow.innerHTML = `<th></th><th class="v" style="color:${CMP_COLORS.a}">${esc(nameA)}</th><th class="diff"></th><th class="v" style="color:${CMP_COLORS.b}">${esc(nameB)}</th>`;
+      table.appendChild(headRow);
+
+      cmpRow(table, "Civil Rights", (byIdA[0]?.score ?? "—"), (byIdB[0]?.score ?? "—"));
+      cmpRow(table, "Economy", (byIdA[1]?.score ?? "—"), (byIdB[1]?.score ?? "—"));
+      cmpRow(table, "Political Freedom", (byIdA[2]?.score ?? "—"), (byIdB[2]?.score ?? "—"));
+      if (compareMode === "nation") {
+        const popA = text(da, "POPULATION"), popB = text(db, "POPULATION");
+        cmpRow(table, "Population", popA ? `${enLocale(popA)} M` : "—", popB ? `${enLocale(popB)} M` : "—");
+        cmpRow(table, "Tax Rate", (text(da, "TAX") ? `${text(da, "TAX")}%` : "—"), (text(db, "TAX") ? `${text(db, "TAX")}%` : "—"));
+        const gdpA = text(da, "GDP"), gdpB = text(db, "GDP");
+        if (gdpA || gdpB) cmpRow(table, "GDP (Standard)", gdpA ? `$${enLocale(gdpA)}` : "—", gdpB ? `$${enLocale(gdpB)}` : "—");
+      } else {
+        cmpRow(table, "Nations", text(da, "NUMNATIONS"), text(db, "NUMNATIONS"));
+        cmpRow(table, "WA Nations", text(da, "NUMWANATIONS"), text(db, "NUMWANATIONS"));
+      }
+      tWrap.appendChild(table);
+      wrap.appendChild(tWrap);
+      $root.appendChild(wrap);
+
+      // charts
+      if (CHART_AVAILABLE) {
+        drawCompassCmp(cv1, pa, pb, nameA, nameB);
+        // Freedom Compass — same radar as the single dossier, overlaid for both entities.
+        const freedomLabels = ["Civil Rights", "Economy", "Political Freedom"];
+        const chart = new Chart(cv2, {
+          type: "radar",
+          data: { labels: freedomLabels, datasets: [
+            { label: nameA, data: [byIdA[0]?.score ?? 0, byIdA[1]?.score ?? 0, byIdA[2]?.score ?? 0], backgroundColor: "rgba(46,92,130,0.18)", borderColor: "#2E5C82", pointBackgroundColor: "#2E5C82", borderWidth: 2 },
+            { label: nameB, data: [byIdB[0]?.score ?? 0, byIdB[1]?.score ?? 0, byIdB[2]?.score ?? 0], backgroundColor: "rgba(201,162,39,0.18)", borderColor: "#C9A227", pointBackgroundColor: "#C9A227", borderWidth: 2 }
+          ] },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } },
+            scales: { r: { min: 0, max: 100, grid: { color: "#dde4e9" }, angleLines: { color: "#dde4e9" },
+              pointLabels: { font: { size: 10.5 } }, ticks: { display: false } } }
+          }
+        });
+        activeCharts.push(chart);
+      } else {
+        drawCompassCmp(cv1, pa, pb, nameA, nameB);
+      }
+      hideBanner();
+      wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      showBanner(err instanceof NSApiError ? err.message : (err.message || "Compare failed."), "error");
+    }
+  }
+  const cmpRun = document.getElementById("compare-run");
+  if (cmpRun) cmpRun.addEventListener("click", compareRun);
+
+  // ---- NATION / REGION OF THE DAY -----------------------------------------
+  const SPOT_REGIONS = ["The Pacific", "The North Pacific", "The South Pacific", "The East Pacific", "The West Pacific", "The Rejected Realms", "Lazarus", "Osiris", "Balder", "Cascadia", "Europeia", "10000 Islands"];
+  function dayIndex() { const now = new Date(); const start = new Date(now.getFullYear(), 0, 0); const diff = now - start; return Math.floor(diff / 86400000); }
+
+  async function loadSpotlights() {
+    const rName = SPOT_REGIONS[dayIndex() % SPOT_REGIONS.length];
+    const regionEl = document.getElementById("spot-region");
+    const nationEl = document.getElementById("spot-nation");
+    try {
+      const rdoc = await fetchRegionMain(rName);
+      const rn = text(rdoc, "NAME");
+      const nNations = text(rdoc, "NUMNATIONS");
+      spotRegion = rName;
+      regionEl.innerHTML = `<strong>${esc(rn)}</strong><small>${esc(enLocale(nNations))} nations</small>`;
+      // pick a nation of the day from this region's roster
+      const rosterRaw = text(rdoc, "NATIONS");
+      const roster = rosterRaw ? rosterRaw.split(":").filter(Boolean) : [];
+      if (roster.length) {
+        const nName = roster[dayIndex() % roster.length];
+        spotNation = nName;
+        nationEl.innerHTML = `<strong>${esc(nName.replace(/_/g, " "))}</strong><small>from ${esc(rn)}</small>`;
+      } else {
+        spotNation = rName;
+        nationEl.innerHTML = `<strong>${esc(rn)}</strong><small>browse today's region</small>`;
+      }
+    } catch (_) {
+      regionEl.innerHTML = `<strong>Unavailable</strong>`;
+      nationEl.innerHTML = `<strong>Unavailable</strong>`;
+    }
+    setPlaceholder();
+  }
+
+  const spotNationBtn = document.getElementById("spot-nation");
+  const spotRegionBtn = document.getElementById("spot-region");
+  if (spotNationBtn) spotNationBtn.addEventListener("click", () => { if (spotNation) openDossier("nation", spotNation); });
+  if (spotRegionBtn) spotRegionBtn.addEventListener("click", () => { if (spotRegion) openDossier("region", spotRegion); });
+
+  loadWorldTicker();
+  tickClock();
+  setInterval(tickClock, 1000);
+  loadSpotlights();
+})();

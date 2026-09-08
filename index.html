@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0B3D66" />
+
+  <meta name="google-site-verification" content="P2HWd22zwZnw25ePMpt9XnjDw-v6asW3QBER7JiFnww" />
+
+  <title>NationStates Dossier Explorer</title>
+  <meta name="description" content="Look up any NationStates nation or region: political compass, ideology, World Census rankings, economy charts and statistics." />
+  <meta name="keywords" content="NationStates, Dossier Explorer, NationStates lookup, NationStates stats, nation finder, region dossier, political compass, NationStates economy, World Census, nation ideology" />
+  <meta name="author" content="Thenium" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+
+  <meta property="og:title" content="NationStates Dossier Explorer" />
+  <meta property="og:description" content="Look up any NationStates nation or region: political compass, ideology, World Census rankings, economy charts and statistics." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://nationstates-dossier-explorer.vercel.app/" />
+  <meta property="og:site_name" content="NationStates Dossier Explorer" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:image" content="https://nationstates-dossier-explorer.vercel.app/og-image.png" />
+  <meta property="og:image:width" content="1280" />
+  <meta property="og:image:height" content="1280" />
+  <meta property="og:image:alt" content="NationStates Dossier Explorer — live nation and region lookup tool" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="NationStates Dossier Explorer" />
+  <meta name="twitter:description" content="Look up any NationStates nation or region: political compass, ideology, World Census rankings, economy charts and statistics." />
+  <meta name="twitter:image" content="https://nationstates-dossier-explorer.vercel.app/og-image.png" />
+
+  <link rel="canonical" href="https://nationstates-dossier-explorer.vercel.app/" />
+  <link rel="icon" type="image/svg+xml" href="https://nationstates-dossier-explorer.vercel.app/favicon.svg" />
+  <link rel="apple-touch-icon" href="https://nationstates-dossier-explorer.vercel.app/favicon.svg" />
+
+  <link rel="stylesheet" href="style.css?v=3" />
+
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
+
+  <script>
+    window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/speed-insights/script.js"></script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "NationStates Dossier Explorer",
+    "url": "https://nationstates-dossier-explorer.vercel.app/",
+    "logo": "https://nationstates-dossier-explorer.vercel.app/favicon.svg",
+    "image": "https://nationstates-dossier-explorer.vercel.app/og-image.png",
+    "applicationCategory": "ReferenceApplication",
+    "operatingSystem": "Web",
+    "description": "Look up any NationStates nation or region: political compass, ideology, World Census rankings, economy charts and statistics.",
+    "inLanguage": "en",
+    "author": { "@type": "Person", "name": "Thenium" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
+  }
+  </script>
+</head>
+<body>
+
+<div class="forum-shell" id="top">
+
+  <header class="forum-header">
+    
+    <h1 class="forum-header__logo">NationStates <span>Dossier</span> Explorer</h1>
+    <div class="forum-header__tagline">Live nation &amp; region lookup tool</div>
+    <span class="forum-header__by">by Thenium</span>
+    <div class="header-actions">
+      <button type="button" class="btn-theme" id="theme-toggle" aria-pressed="false" title="Toggle dark mode">🌙</button>
+      <button type="button" class="btn-help" id="help-open" aria-haspopup="dialog" aria-controls="help-dialog">ℹ️ <span>How the data is calculated</span></button>
+    </div>
+  </header>
+
+  <nav class="forum-breadcrumb">
+    <span id="live-clock" class="forum-breadcrumb__clock"></span>
+  </nav>
+
+  <div class="forum-statsbar">
+    <span id="world-ticker">Connecting to the world archive…</span>
+  </div>
+
+  <section class="spotlights" id="daily-spotlights" aria-label="Dossier of the day">
+    <article class="spotlight-card">
+      <div class="spotlight-card__title">Nation of the day</div>
+      <button type="button" id="spot-nation" class="spotlight-card__body"><span class="spot-tag">Open dossier</span><strong>Loading…</strong></button>
+    </article>
+    <article class="spotlight-card">
+      <div class="spotlight-card__title">Region of the day</div>
+      <button type="button" id="spot-region" class="spotlight-card__body"><span class="spot-tag">Open dossier</span><strong>Loading…</strong></button>
+    </article>
+  </section>
+
+  <form class="searchbox" id="lookup-form" autocomplete="off">
+    <div class="searchbox__title">Search the archive</div>
+    <div class="searchbox__body">
+      <div class="tabs" role="tablist" aria-label="Lookup type">
+        <button type="button" class="tab is-active" data-mode="nation" role="tab" aria-selected="true">Nation</button>
+        <button type="button" class="tab" data-mode="region" role="tab" aria-selected="false">Region</button>
+        <button type="button" class="tab" data-mode="world" role="tab" aria-selected="false">World</button>
+      </div>
+      <div class="searchbox__field">
+        <span class="searchbox__prefix" id="lookup-prefix">nation:</span>
+        <input id="query-input" name="query" type="text" placeholder="e.g. testlandia" required />
+        <button type="submit" class="btn-primary">Open dossier</button>
+      </div>
+      <p class="searchbox__hint">Case and spaces don't matter — <em>"United States"</em> and <em>united_states</em> are the same.</p>
+    </div>
+  </form>
+
+  <section class="compare-panel" id="compare-panel">
+    <div class="compare-panel__box">
+      <div class="searchbox__title">Compare two entities</div>
+      <div class="searchbox__body">
+        <div class="cmp-tabs tabs" role="tablist" aria-label="Compare type">
+          <button type="button" class="tab is-active" id="cmp-mode-nation" data-cmpmode="nation" role="tab" aria-selected="true">Nations</button>
+          <button type="button" class="tab" id="cmp-mode-region" data-cmpmode="region" role="tab" aria-selected="false">Regions</button>
+        </div>
+        <div class="compare-grid">
+          <div class="cmp-field"><label for="cmp-input-a">First</label><input id="cmp-input-a" type="text" placeholder="e.g. testlandia" /></div>
+          <div class="cmp-field"><label for="cmp-input-b">Second</label><input id="cmp-input-b" type="text" placeholder="e.g. thenium" /></div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; margin-top:8px"><button type="button" class="btn-primary" id="compare-run">Compare</button></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="status-banner" class="banner" hidden role="status"></div>
+
+  <main id="dossier-root">
+    <noscript><p class="ns-note">This tool requires JavaScript to load live data from the NationStates API. Enable JavaScript to view the dossier.</p></noscript>
+  </main>
+
+  <footer class="forum-footer">
+    <p>Data fetched live from the <a href="https://www.nationstates.net/pages/api.html" target="_blank" rel="noopener">public NationStates API</a>. Independent fan-made tool — not affiliated with NationStates or Jennifer Government PTY LTD.</p>
+    <p class="forum-footer__update" id="update-timer" hidden>Site updated <span id="update-elapsed">just now</span></p>
+    <p class="forum-footer__feedback">Found a bug or have a suggestion? <a href="https://forum.nationstates.net/viewtopic.php?f=19&t=587966#p43905335" target="_blank" rel="noopener">Post in the NationStates forum thread</a>.</p>
+    <p class="forum-footer__vibe">The site was mostly vibe-coded</p>
+  </footer>
+
+</div>
+
+<template id="tpl-nation">
+  <article class="dossier dossier--nation">
+
+    <section class="card card--identity">
+      <div class="identity-hero"><img class="identity__banner" data-f="banner" alt="" /></div>
+      <div class="identity-body">
+      <div class="profile-box">
+        <div class="avatar-frame"><img class="identity__flag" data-f="flag" alt="" /></div>
+        <div class="profile-box__badge" data-f="wa-badge">—</div>
+        <table class="profile-box__stats">
+          <tbody>
+            <tr><td>Population:</td><td data-f="side-population">—</td></tr>
+            <tr><td>Region:</td><td data-f="side-region">—</td></tr>
+            <tr><td>Founded:</td><td data-f="side-founded">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="profile-main">
+        <div class="profile-main__head">
+          <span>Dossier #<span data-f="dbid">0</span></span>
+          <span data-f="category">Category</span>
+        </div>
+        <h2 class="identity__name" data-f="name">—</h2>
+        <p class="identity__fullname" data-f="fullname"></p>
+        <p class="identity__motto">&ldquo;<span data-f="motto"></span>&rdquo;</p>
+        <div class="identity__compass">
+          <canvas id="chart-polcompass-mini" class="identity__compass-canvas" alt="" title="Political compass embed"></canvas>
+          <div class="identity__compass-meta">
+            <span class="identity__compass-label">Political compass</span>
+            <span class="identity__compass-ideology" data-f="ideology-mini">—</span>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <section class="card card--ledger card--ledger-wide">
+      <h3 class="card__title">Registration file</h3>
+      <table class="ledger-table">
+        <tbody>
+          <tr><td>Region</td><td data-f="region">—</td></tr>
+          <tr><td>Founded</td><td data-f="founded">—</td></tr>
+          <tr><td>First login</td><td data-f="firstlogin">—</td></tr>
+          <tr><td>Last login</td><td data-f="lastlogin">—</td></tr>
+          <tr><td>Last activity</td><td data-f="lastactivity">—</td></tr>
+          <tr><td>Population</td><td data-f="population">—</td></tr>
+          <tr><td>Capital</td><td data-f="capital">—</td></tr>
+          <tr><td>Leader</td><td data-f="leader">—</td></tr>
+          <tr><td>Religion</td><td data-f="religion">—</td></tr>
+          <tr><td>National animal</td><td data-f="animal">—</td></tr>
+          <tr><td>Currency</td><td data-f="currency">—</td></tr>
+          <tr><td>Demonym</td><td data-f="demonym">—</td></tr>
+          <tr><td>Major industry</td><td data-f="majorindustry">—</td></tr>
+          <tr><td>Top spending priority</td><td data-f="govtpriority">—</td></tr>
+          <tr><td>Average tax rate</td><td data-f="tax">—</td></tr>
+          <tr><td>Public sector</td><td data-f="publicsector">—</td></tr>
+          <tr><td>GDP</td><td data-f="gdp">—</td></tr>
+          <tr><td>Average income</td><td data-f="income">—</td></tr>
+          <tr><td>Poorest / richest</td><td data-f="poverty">—</td></tr>
+          <tr><td>Crime level</td><td data-f="crime">—</td></tr>
+        </tbody>
+      </table>
+      <p class="ledger__desc" data-f="govtdesc"></p>
+    </section>
+
+    <section class="card card--legislation card--wide">
+      <h3 class="card__title">Legislation &amp; civil society</h3>
+      <p class="mini-title">What they say about this nation — tongue-in-cheek headlines NationStates generates from its policies</p>
+      <ul class="quirk-list" data-f="legislation"></ul>
+      <p class="mini-title">Distinguishing traits</p>
+      <div class="chips chips--attr" data-f="notables"></div>
+    </section>
+
+    <section class="card card--compass">
+      <h3 class="card__title">Basic</h3>
+      <div class="chart-box chart-box--square"><canvas id="chart-freedom"></canvas></div>
+      <div class="compass__labels">
+        <p><span class="dot dot--blue"></span> Civil Rights: <b data-f="fr-civil">—</b></p>
+        <p><span class="dot dot--gold"></span> Economy: <b data-f="fr-econ">—</b></p>
+        <p><span class="dot dot--red"></span> Political Freedom: <b data-f="fr-pol">—</b></p>
+      </div>
+    </section>
+
+    <section class="card card--compass card--compass-wide">
+      <h3 class="card__title">Political compass &amp; ideology</h3>
+      <div class="compass-layout">
+        <div class="compass-layout__chart">
+          <div class="chart-box chart-box--compass"><canvas id="chart-polcompass"></canvas></div>
+          <div class="compass-legend" data-f="compass-legend"></div>
+        </div>
+        <div class="compass-layout__info">
+          <div class="progressive">
+            <div class="progressive__head"><span>Social progressiveness</span><b data-f="progressive">—</b></div>
+            <div class="progressive__bar"><div class="progressive__fill" data-f="progressive-fill"></div></div>
+          </div>
+          <p class="ideology-line" data-f="ideology">—</p>
+          <p class="ideology-desc" data-f="ideology-desc"></p>
+        </div>
+      </div>
+
+      <div class="ideo-hist" data-ideo-hist>
+        <h4 class="ideo-hist__title">Political compass over time</h4>
+        <p class="ideo-hist__hint muted">Drag the slider to rewind this card: the compass point, zone, progressiveness gauge, ideology and descriptions are recomputed month by month with the same World Census factors used above. Right = today; left = further into the past.</p>
+        <p class="ideo-hist__hint muted" data-ideo-struct hidden></p>
+        <div class="time-scrub" data-time-scrub hidden>
+          <div class="time-scrub__band" data-time-band role="group" aria-label="Ideological phases"></div>
+          <input type="range" class="time-scrub__range" data-time-range min="0" max="0" value="0" step="1" aria-label="Time — drag to move through the timeline">
+          <div class="time-scrub__labels">
+            <span data-time-min>—</span>
+            <b class="time-scrub__cur" data-time-cur>—</b>
+            <span data-time-max>—</span>
+          </div>
+        </div>
+        <p class="ideo-hist__note muted" data-ideo-note></p>
+      </div>
+    </section>
+
+    <section class="card card--sectors">
+      <h3 class="card__title">Government spending</h3>
+      <p class="govt-legend" data-f="govt-legend"></p>
+      <div class="chart-box chart-box--govt"><canvas id="chart-govt"></canvas></div>
+    </section>
+
+    <section class="card card--wa">
+      <h3 class="card__title">World Assembly</h3>
+      <p class="wa-status" data-f="wa-status">—</p>
+      <table class="ledger-table">
+        <tbody>
+          <tr><td>Endorsements received</td><td data-f="endo-count">—</td></tr>
+          <tr><td>Influence</td><td data-f="influence">—</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card card--policies">
+      <h3 class="card__title">Adopted policies</h3>
+      <div class="chips" data-f="policies-list"></div>
+    </section>
+
+    <section class="card card--sectorbars">
+      <h3 class="card__title">Economic structure (% of GDP)</h3>
+      <div class="chart-box chart-box--wide"><canvas id="chart-sectors"></canvas></div>
+    </section>
+
+    <section class="card card--economy card--wide" data-f="economy-section">
+      <h3 class="card__title">Dedicated economy report</h3>
+      <div class="economy-grid" data-f="e-grid">
+        <table class="ledger-table">
+          <tbody>
+            <tr><td>GDP</td><td data-f="e-gdp">—</td></tr>
+            <tr><td>GDP per capita</td><td data-f="e-gdpcapita">—</td></tr>
+            <tr><td>Average income</td><td data-f="e-income">—</td></tr>
+            <tr><td>Tax rate</td><td data-f="e-tax">—</td></tr>
+            <tr><td>Output</td><td data-f="e-output">—</td></tr>
+            <tr><td>Consumption</td><td data-f="e-consumption">—</td></tr>
+            <tr><td>Government expenditures</td><td data-f="e-govexp">—</td></tr>
+            <tr><td>Imports</td><td data-f="e-imports">—</td></tr>
+            <tr><td>Exports</td><td data-f="e-exports">—</td></tr>
+            <tr><td>Net trade</td><td data-f="e-nettrade">—</td></tr>
+            <tr><td>Worker enthusiasm</td><td data-f="e-enthusiasm">—</td></tr>
+            <tr><td>Consumer confidence</td><td data-f="e-confidence">—</td></tr>
+            <tr><td>Government efficiency</td><td data-f="e-goveff">—</td></tr>
+            <tr><td>Unemployment</td><td data-f="e-unemployment">—</td></tr>
+            <tr><td>Exchange rate</td><td><span class="erate" data-f="e-exchangerate">—</span></td></tr>
+            <tr><td>Black market size</td><td data-f="e-blackmarket">—</td></tr>
+          </tbody>
+        </table>
+        <div class="economy-charts">
+          <div class="chart-box chart-box--wide"><canvas id="chart-economy"></canvas></div>
+          <div class="chart-box chart-box--wide"><canvas id="chart-trade"></canvas></div>
+          <p class="economy-note">Calculated from NationStates figures with the <strong>NSEconomy</strong> model &mdash; base values v0.7.0 courtesy of <strong>Commerce Heights</strong>; black-market equations by <strong>Sunset</strong> and <strong>Tbone Steak</strong> (<a href="http://www.broomdces.com/nseconomy/calculations.php" target="_blank" rel="noopener">broomdces.com/nseconomy</a>).</p>
+        </div>
+        <p class="trade-status" data-f="e-tradenote" hidden></p>
+      </div>
+      <div class="economy-loading" data-f="e-econloading" hidden>
+        <p class="economy-loading__msg" data-f="e-loadmsg"></p>
+        <div class="economy-loading__track"><div class="economy-loading__fill" data-f="e-loadfill"></div></div>
+        <p class="economy-loading__stats"><span data-f="e-loadpct">0%</span> <span class="economy-loading__count" data-f="e-loadcount"></span></p>
+        <p class="economy-loading__why" data-f="e-loadwhy"></p>
+      </div>
+    </section>
+
+    <section class="card card--death" data-f="death-section" hidden>
+      <h3 class="card__title">Leading causes of death</h3>
+      <div class="chart-box chart-box--wide"><canvas id="chart-deaths"></canvas></div>
+    </section>
+
+    <section class="card card--census card--wide" data-f="census-section">
+      <div class="card__title-row">
+        <h3 class="card__title">World Census Explorer</h3>
+        <span class="census-hint muted">Click a scale to reveal its trend</span>
+      </div>
+      <div class="census-explorer">
+        <div class="census-ladder">
+          <div class="census-ladder__body" data-f="census-ladder"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card card--activity card--wide">
+      <h3 class="card__title">Recent activity log</h3>
+      <ul class="activity-log" data-f="happenings"></ul>
+    </section>
+
+    <section class="card card--dispatches card--wide" data-f="dispatch-section" hidden>
+      <h3 class="card__title">Official publications</h3>
+      <ul class="dispatch-list" data-f="dispatches"></ul>
+    </section>
+
+  </article>
+</template>
+
+<template id="tpl-region">
+  <article class="dossier dossier--region">
+
+    <section class="card card--identity">
+      <div class="identity-hero"><img class="identity__banner" data-f="banner" alt="" /></div>
+      <div class="identity-body">
+      <div class="profile-box">
+        <div class="avatar-frame"><img class="identity__flag" data-f="flag" alt="" /></div>
+        <div class="profile-box__badge" data-f="founder-badge">—</div>
+        <table class="profile-box__stats">
+          <tbody>
+            <tr><td>Nations:</td><td data-f="side-population">—</td></tr>
+            <tr><td>Delegate:</td><td data-f="side-delegate">—</td></tr>
+            <tr><td>Founded:</td><td data-f="side-founded">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="profile-main">
+        <div class="profile-main__head">
+          <span data-f="tags">—</span>
+        </div>
+        <h2 class="identity__name" data-f="name">—</h2>
+        <p class="identity__motto identity__power"><span class="power-label">Region power:</span> <b data-f="power"></b></p>
+        <div class="identity__compass">
+          <canvas id="chart-polcompass-region-mini" class="identity__compass-canvas" alt="" title="Political compass embed"></canvas>
+          <div class="identity__compass-meta">
+            <span class="identity__compass-label">Political compass</span>
+            <span class="identity__compass-ideology" data-f="ideology-mini">—</span>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <section class="card card--ledger card--ledger-wide">
+      <h3 class="card__title">Regional file</h3>
+      <table class="ledger-table">
+        <tbody>
+          <tr><td>Founded</td><td data-f="founded">—</td></tr>
+          <tr><td>Founder</td><td data-f="founder">—</td></tr>
+          <tr><td>Governor</td><td data-f="governor">—</td></tr>
+          <tr><td>WA delegate</td><td data-f="delegate">—</td></tr>
+          <tr><td>Delegate votes</td><td data-f="delegatevotes">—</td></tr>
+          <tr><td>Resident nations</td><td data-f="numnations">—</td></tr>
+          <tr><td>WA nations</td><td data-f="numwanations">—</td></tr>
+          <tr><td>Frontier</td><td data-f="frontier">—</td></tr>
+          <tr><td>Magnetism</td><td data-f="magnetism">—</td></tr>
+          <tr><td>Last update</td><td data-f="lastupdate">—</td></tr>
+        </tbody>
+      </table>
+      <p class="ledger__desc" data-f="factbook"></p>
+      <div class="wa-badges" data-f="banlist-wrap" hidden>
+        <p class="mini-title">Banned nations (<span data-f="ban-count">0</span>)</p>
+        <div class="chips chips--scroll" data-f="banlist"></div>
+      </div>
+      <div class="wa-badges" data-f="recruiters-wrap" hidden>
+        <p class="mini-title">Recruiters</p>
+        <div class="chips chips--scroll" data-f="recruiters"></div>
+      </div>
+      <div class="wa-badges" data-f="delegateauth-wrap" hidden>
+        <p class="mini-title">Delegate authorities</p>
+        <div class="chips" data-f="delegateauth-list"></div>
+      </div>
+    </section>
+
+    <section class="card card--compass">
+      <h3 class="card__title">Regional freedom average</h3>
+      <div class="chart-box chart-box--square"><canvas id="chart-freedom-region"></canvas></div>
+      <div class="compass__labels">
+        <p><span class="dot dot--blue"></span> Civil Rights: <b data-f="fr-civil">—</b></p>
+        <p><span class="dot dot--gold"></span> Economy: <b data-f="fr-econ">—</b></p>
+        <p><span class="dot dot--red"></span> Political Freedom: <b data-f="fr-pol">—</b></p>
+      </div>
+    </section>
+
+    <section class="card card--compass card--compass-wide">
+      <h3 class="card__title">Regional political compass &amp; ideology</h3>
+      <div class="compass-layout">
+        <div class="compass-layout__chart">
+          <div class="chart-box chart-box--compass"><canvas id="chart-polcompass-region"></canvas></div>
+          <div class="compass-legend" data-f="compass-legend"></div>
+        </div>
+        <div class="compass-layout__info">
+          <div class="progressive">
+            <div class="progressive__head"><span>Social progressiveness</span><b data-f="progressive">—</b></div>
+            <div class="progressive__bar"><div class="progressive__fill" data-f="progressive-fill"></div></div>
+          </div>
+          <p class="ideology-line" data-f="ideology">—</p>
+          <p class="ideology-desc" data-f="ideology-desc"></p>
+        </div>
+      </div>
+
+      <div class="ideo-hist" data-ideo-hist>
+        <h4 class="ideo-hist__title">Political compass over time</h4>
+        <p class="ideo-hist__hint muted">Drag the slider to rewind this card: the compass point, zone, progressiveness gauge, ideology and descriptions are recomputed month by month with the same World Census factors used above. Right = today; left = further into the past.</p>
+        <p class="ideo-hist__hint muted" data-ideo-struct hidden></p>
+        <div class="time-scrub" data-time-scrub hidden>
+          <div class="time-scrub__band" data-time-band role="group" aria-label="Ideological phases"></div>
+          <input type="range" class="time-scrub__range" data-time-range min="0" max="0" value="0" step="1" aria-label="Time — drag to move through the timeline">
+          <div class="time-scrub__labels">
+            <span data-time-min>—</span>
+            <b class="time-scrub__cur" data-time-cur>—</b>
+            <span data-time-max>—</span>
+          </div>
+        </div>
+        <p class="ideo-hist__note muted" data-ideo-note></p>
+      </div>
+    </section>
+
+    <section class="card card--officers card--wide" data-f="officers-section" hidden>
+      <h3 class="card__title">Regional officers</h3>
+      <ul class="dispatch-list" data-f="officers-list"></ul>
+    </section>
+
+    <section class="card card--embassies">
+      <h3 class="card__title">Diplomatic file</h3>
+      <p class="mini-title">Active embassies (<span data-f="embassy-count">0</span>)</p>
+      <div class="chips chips--scroll" data-f="embassies"></div>
+    </section>
+
+    <section class="card card--census card--wide" data-f="census-section">
+      <div class="card__title-row">
+        <h3 class="card__title">World Census Explorer — regional average</h3>
+        <span class="census-hint muted">Click a scale to reveal its trend</span>
+      </div>
+      <div class="census-explorer">
+        <div class="census-ladder">
+          <div class="census-ladder__body" data-f="census-ladder"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card card--activity card--wide">
+      <h3 class="card__title">Recent activity log</h3>
+      <ul class="activity-log" data-f="happenings"></ul>
+    </section>
+
+    <section class="card card--activity card--wide" data-f="history-section" hidden>
+      <h3 class="card__title">Regional history</h3>
+      <ul class="activity-log" data-f="history"></ul>
+    </section>
+
+    <section class="card card--rmb card--wide" data-f="rmb-section" hidden>
+      <h3 class="card__title">Regional message board — recent posts</h3>
+      <ul class="rmb-feed" data-f="messages"></ul>
+    </section>
+
+    <section class="card card--roster card--wide">
+      <div class="card__title-row">
+        <h3 class="card__title">Nation roster (<span data-f="roster-count">0</span>)</h3>
+        <button type="button" class="btn-ghost" data-action="toggle-roster">Show full roster</button>
+      </div>
+      <div class="chips chips--scroll" data-f="roster" hidden></div>
+    </section>
+
+  </article>
+</template>
+
+<template id="tpl-world">
+  <article class="dossier dossier--world">
+
+    <section class="card card--identity">
+      <div class="identity-body">
+        <div class="profile-box">
+          <div class="avatar-frame avatar-frame--globe" aria-hidden="true">🌐</div>
+          <div class="profile-box__badge is-online" data-f="world-badge">Global dossier</div>
+          <table class="profile-box__stats">
+            <tbody>
+              <tr><td>Avg Population:</td><td data-f="side-population">—</td></tr>
+              <tr><td>Regions:</td><td data-f="side-regions">—</td></tr>
+              <tr><td>Founded:</td><td data-f="side-founded">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="profile-main">
+          <div class="profile-main__head">
+            <span>World dossier — the average of every nation</span>
+            <span data-f="category">Global average</span>
+          </div>
+          <h2 class="identity__name" data-f="name">The World</h2>
+          <p class="identity__fullname">The combined dossier of every NationStates nation — each one counts equally in every average.</p>
+          <p class="identity__motto" data-f="w-snapshot"></p>
+          <div class="identity__compass">
+            <canvas id="chart-polcompass-world-mini" class="identity__compass-canvas" alt="" title="Political compass embed"></canvas>
+            <div class="identity__compass-meta">
+              <span class="identity__compass-label">Political compass</span>
+              <span class="identity__compass-ideology" data-f="ideology-mini">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card card--ledger card--ledger-wide">
+      <h3 class="card__title">World archive file</h3>
+      <table class="ledger-table">
+        <tbody>
+          <tr><td>Nations (live)</td><td data-f="w-nations">—</td></tr>
+          <tr><td>Regions (live)</td><td data-f="w-regions">—</td></tr>
+          <tr><td>WA member nations</td><td data-f="w-wa-nations">—</td></tr>
+          <tr><td>WA delegates</td><td data-f="w-wa-delegates">—</td></tr>
+          <tr><td>WA share of nations</td><td data-f="w-wa-share">—</td></tr>
+          <tr><td>Founded</td><td data-f="w-founded">—</td></tr>
+          <tr><td>Census archive begins</td><td data-f="w-archive-since">—</td></tr>
+          <tr><td>Civil Rights / Economy / Political Freedom</td><td data-f="w-freedoms">—</td></tr>
+        </tbody>
+      </table>
+      <p class="ledger__desc">Every figure is the live World Census average across all nations (each nation weighted equally), refreshed daily by the NationStates archive.</p>
+    </section>
+
+    <section class="card card--compass">
+      <h3 class="card__title">Global freedom averages</h3>
+      <div class="chart-box chart-box--square"><canvas id="chart-freedom-world"></canvas></div>
+      <div class="compass__labels">
+        <p><span class="dot dot--blue"></span> Civil Rights: <b data-f="fr-civil">—</b></p>
+        <p><span class="dot dot--gold"></span> Economy: <b data-f="fr-econ">—</b></p>
+        <p><span class="dot dot--red"></span> Political Freedom: <b data-f="fr-pol">—</b></p>
+      </div>
+    </section>
+
+    <section class="card card--compass card--compass-wide">
+      <h3 class="card__title">World political compass &amp; ideology</h3>
+      <div class="compass-layout">
+        <div class="compass-layout__chart">
+          <div class="chart-box chart-box--compass"><canvas id="chart-polcompass-world"></canvas></div>
+          <div class="compass-legend" data-f="compass-legend"></div>
+        </div>
+        <div class="compass-layout__info">
+          <div class="progressive">
+            <div class="progressive__head"><span>Social progressiveness</span><b data-f="progressive">—</b></div>
+            <div class="progressive__bar"><div class="progressive__fill" data-f="progressive-fill"></div></div>
+          </div>
+          <p class="ideology-line" data-f="ideology">—</p>
+          <p class="ideology-desc" data-f="ideology-desc"></p>
+        </div>
+      </div>
+
+      <div class="ideo-hist" data-ideo-hist>
+        <h4 class="ideo-hist__title">Political compass over time</h4>
+        <p class="ideo-hist__hint muted">Drag the slider to rewind this card: the compass point, zone, progressiveness gauge, ideology and descriptions are recomputed month by month with the same World Census factors used above. Right = today; left = further into the past.</p>
+        <p class="ideo-hist__hint muted" data-ideo-struct hidden></p>
+        <div class="time-scrub" data-time-scrub hidden>
+          <div class="time-scrub__band" data-time-band role="group" aria-label="Ideological phases"></div>
+          <input type="range" class="time-scrub__range" data-time-range min="0" max="0" value="0" step="1" aria-label="Time — drag to move through the timeline">
+          <div class="time-scrub__labels">
+            <span data-time-min>—</span>
+            <b class="time-scrub__cur" data-time-cur>—</b>
+            <span data-time-max>—</span>
+          </div>
+        </div>
+        <p class="ideo-hist__note muted" data-ideo-note></p>
+      </div>
+    </section>
+
+    <section class="card card--census card--wide" data-f="census-section">
+      <div class="card__title-row">
+        <h3 class="card__title">World Census averages — every scale</h3>
+        <span class="census-hint muted">Click a scale to reveal its world trend</span>
+      </div>
+      <div class="census-explorer">
+        <div class="census-ladder">
+          <div class="census-ladder__body" data-f="census-ladder"></div>
+        </div>
+      </div>
+    </section>
+
+  </article>
+</template>
+
+<dialog class="help-dialog" id="help-dialog" aria-labelledby="help-title">
+  <div class="help-dialog__panel">
+    <div class="help-dialog__head">
+      <h2 id="help-title">How the data is calculated</h2>
+      <button type="button" class="btn-close" data-close-dialog aria-label="Close">✕</button>
+    </div>
+    <div class="help-dialog__body">
+
+      <p class="help-lede"><strong>Scope.</strong> This document specifies the provenance of every figure displayed in a dossier. Each value belongs to one of two categories: <strong>downloaded data</strong> &mdash; retrieved verbatim from the official NationStates API &mdash; or <strong>derived estimates</strong> &mdash; produced by this application from downloaded data using the procedures documented below. The derived quantities are the political-compass position, the ideology label, the social-progressiveness gauge and the economy report. For each derived quantity, the corresponding section states what it measures and the exact formula or algorithm by which it is obtained.</p>
+
+      <section class="help-sec">
+        <h3>1. Data provenance &mdash; downloaded versus derived</h3>
+        <table class="help-table">
+          <thead><tr><th>Dossier field</th><th>Provenance</th></tr></thead>
+          <tbody>
+            <tr><td>Registration file (founded, capital, leader, religion, population, tax, GDP&hellip;), flags, region badge</td><td>Downloaded &mdash; verbatim from the API</td></tr>
+            <tr><td>World Census Explorer &mdash; bars and &ldquo;Top X%&rdquo; per scale</td><td>Downloaded &mdash; official score and percentile rank</td></tr>
+            <tr><td>Trend graphs under census scales</td><td>Downloaded &mdash; official scale history</td></tr>
+            <tr><td>Government spending and economic-structure charts</td><td>Downloaded &mdash; official percentages (% of budget, % of GDP)</td></tr>
+            <tr><td>Adopted policies, society headlines, notables, dispatches, officers, embassies, activity log</td><td>Downloaded &mdash; light formatting applied</td></tr>
+            <tr><td>Freedom radar &ldquo;Basic&rdquo; (three 0&ndash;100 axes)</td><td>Downloaded &mdash; Civil Rights, Economy, Political Freedom scores</td></tr>
+            <tr><td>Social-progressiveness gauge and its label</td><td>Derived &mdash; see Section 3</td></tr>
+            <tr><td>Political compass point (X, Y)</td><td>Derived &mdash; see Section 4</td></tr>
+            <tr><td>Ideology name and written explanation</td><td>Derived &mdash; see Section 5</td></tr>
+            <tr><td>Economy report (GDP, unemployment, net trade, black market&hellip;)</td><td>Derived &mdash; see Section 6</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="help-sec">
+        <h3>2. World Census Explorer &mdash; ranks and bars</h3>
+        <p>Each of the approximately ninety World Census scales (e.g. &ldquo;Most Efficient Economies&rdquo;) ranks every nation. The API reports two quantities per scale:</p>
+        <ul>
+          <li><strong>Score</strong> &mdash; the entity&rsquo;s raw value; used in charts and formulas, not shown on the bar.</li>
+          <li><strong>Percentile rank (<code>prank</code>)</strong> &mdash; the official world percentile. A rank of <strong>Top 15%</strong> indicates that the entity outperforms 85% of nations on that scale.</li>
+        </ul>
+        <p>The bar is a visual encoding of the rank: its length equals <code>100 − prank</code>, so the highest-ranked entities fill the bar. Scales are grouped into nine colour-coded thematic families; selecting a row opens the official history of that scale as a trend graph. Bars, ranks and trends are all downloaded; the Explorer derives nothing.</p>
+      </section>
+
+      <section class="help-sec">
+        <h3>3. Social-progressiveness gauge</h3>
+        <p><strong>Definition.</strong> The gauge summarises how open the society is, using the civil-liberties and political-rights scores exclusively. Economic indicators are deliberately excluded: a wealthy nation with restricted civil liberties is not classified as progressive.</p>
+        <p class="help-formula-line">Formula: <code>progressive = (Civil Rights score + Political Freedom score) / 2</code>, each axis scaled 0&ndash;100.</p>
+        <table class="help-table">
+          <thead><tr><th>Value</th><th>Label</th></tr></thead>
+          <tbody>
+            <tr><td>75 and above</td><td>Highly progressive</td></tr>
+            <tr><td>55 &ndash; 74</td><td>Progressive</td></tr>
+            <tr><td>40 &ndash; 54</td><td>Centrist</td></tr>
+            <tr><td>25 &ndash; 39</td><td>Traditionalist</td></tr>
+            <tr><td>below 25</td><td>Strongly traditionalist</td></tr>
+          </tbody>
+        </table>
+        <p class="help-note">The labels characterise the civil-liberties regime, not economic policy: a market economy may still be classified &ldquo;Traditionalist&rdquo; where personal freedoms are restricted.</p>
+      </section>
+
+      <section class="help-sec">
+        <h3>4. Political compass &mdash; coordinate model</h3>
+        <p>The compass places the entity on a two-axis plane whose origin is the world average (0, 0). Each axis spans &minus;100 to +100. Values are clipped only when the government-size adjustment would push them beyond the &plusmn;100 boundary.</p>
+        <dl class="help-defs">
+          <div><dt>X &mdash; economic axis (Left &harr; Right)</dt>
+            <dd><strong>Interpretation.</strong> Negative values indicate predominant state ownership and management of the economy; positive values indicate predominantly private enterprise and market allocation.</dd>
+            <dd>The axis is driven by a structural measure of who controls production &mdash; market actors or the state &mdash; rather than by output. Where the API publishes the <strong>production-sector split</strong> (share of GDP from state-owned industry versus private industry plus black market), it defines the lean; otherwise &mdash; for regions, the world and historical months &mdash; the lean is derived from the <strong>Economic Freedom</strong> census scale (ID 48), the game&rsquo;s own market-versus-state indicator, which is also incorporated in every case. The &ldquo;Economy&rdquo; census is not used alone: it measures output, not ownership, and a fully state-run economy may still score &ldquo;Powerhouse&rdquo;. Notation: <code>market = private + black market</code>, <code>state = state-owned</code>.</dd>
+            <dd><code>sectorLean = (market − state) / (market + state)</code> &nbsp;&middot;&nbsp; without a split: <code>sectorLean = (Economic Freedom − 50) / 50</code> &nbsp;(&minus;1 fully state; +1 fully market), where Economic Freedom is the raw signed score (&minus;100 fully state &hellip; +100 fully market; rescaled to the 0&ndash;100 index used elsewhere as <code>(raw + 100) / 2</code>)</dd>
+            <dd><code>index = (Economic Freedom + Economy) / 2</code> &nbsp;(both on the 0&ndash;100 index; falls back to Economy when scale 48 is unavailable)</dd>
+            <dd><code>X = sectorLean × 92 × 0.9 + (index − 50) × 0.1</code> &nbsp;&mdash; applied when the lean is decisive (|lean| &gt; 0.25); for mixed economies the two components are blended in a 45/55 proportion.</dd></div>
+          <div><dt>Y &mdash; authority axis (Authoritarian &harr; Libertarian)</dt>
+            <dd><strong>Interpretation.</strong> Negative values denote concentration of power in a small ruling group; positive values denote broad civil liberties and accountable leadership.</dd>
+            <dd><code>Y = ((Civil Rights + Political Freedom) / 2 − 50) × 2</code>, reduced for large governments: <code>Y −= (Government Size − 50) × 0.6</code>, where Government Size is census scale ID 27.</dd></div>
+        </dl>
+        <p>The background is divided at &plusmn;33 on each axis into nine zones (Authoritarian Left &hellip; Libertarian Right); zone colours correspond to the compass legend.</p>
+      </section>
+
+      <section class="help-sec">
+        <h3>5. Ideology &mdash; classification method</h3>
+        <p>NationStates defines no official ideology. The label shown is the output of a deterministic classification procedure applied to the data described in Section 4:</p>
+        <ol>
+          <li><strong>Positioning.</strong> The compass point is placed with the formulas in Section 4.</li>
+          <li><strong>Similarity ranking.</strong> The point is compared with a reference set of <span id="help-ideology-count">—</span> named ideologies. Each reference ideology stores an anchor on the compass plane together with its expected <em>traditionalism</em> and <em>radicality</em>; the society profile therefore discriminates between ideologies that occupy nearly the same compass position (e.g. <em>Paleoconservatism</em> versus <em>One-Nation Conservatism</em>, or <em>Theocracy</em> versus generic <em>Authoritarianism</em>). The reference set covers the entire plane, including the democratic far left, state socialism, the ecological centre and traditionalist variants.</li>
+          <li><strong>Census validation.</strong> Selected ideologies carry a &ldquo;signature&rdquo;: a definitional trait that must be present in the data. An <em>Anarcho-Primitivist</em> label, for instance, requires the entity to rank among the most primitive nations (or to combine high eco-friendliness with low technological development). Where the nearest ideology contradicts the census profile it is rejected and the next-nearest compatible ideology is assigned; the dossier explanation records any such rejection.</li>
+        </ol>
+        <p><strong>Complete list of inputs.</strong> Every datum the classifier consumes, and the role it plays:</p>
+        <table class="help-table">
+          <thead><tr><th>Input</th><th>Source</th><th>Role in the classification</th></tr></thead>
+          <tbody>
+            <tr><td>Civil Rights (ID 0)</td><td>Live API score</td><td>Half of the compass Y axis (liberty pole), and half of the social-progressiveness gauge.</td></tr>
+            <tr><td>Political Freedom (ID 2)</td><td>Live API score</td><td>The other half of the Y axis and of the progressiveness gauge.</td></tr>
+            <tr><td>Economy (ID 1)</td><td>Live API score</td><td>Base economic axis and, where Economic Freedom is unavailable, its fallback blend partner.</td></tr>
+            <tr><td>State-owned vs private industry split</td><td>Live API <code>sectors</code> shard (nations and regions)</td><td><strong>Primary driver of the X axis</strong>: the market share minus the state share of production measures the structural economic lean, which the Economy score alone cannot supply (a planned economy can still be a &ldquo;Powerhouse&rdquo;).</td></tr>
+            <tr><td>Economic Freedom (ID 48)</td><td>Live API score, signed &minus;100&hellip;+100</td><td>Fallback structural lean when no sector split exists (world dossier, archived months); also the tie-breaker preference for the market-oriented ideologies (Anarcho-Capitalism, Libertarianism, Classical Liberalism, Market Socialism).</td></tr>
+            <tr><td>Tax rate</td><td>Live API <code>tax</code> shard (nations)</td><td>Redistribution evidence, first-order nudge on X (up to &plusmn;15 points): high taxation pulls left, low taxation pulls right.</td></tr>
+            <tr><td>Welfare (ID 28)</td><td>Percentile rank (0&ndash;100)</td><td>The second redistribution signal (up to &plusmn;15 points on X, weighted with the tax rate), used as a rank because its raw score is a dollar figure. Also the tie-breaker preference for Social Democracy, Religious Socialism and Democratic Socialism.</td></tr>
+            <tr><td>Government Size (ID 27)</td><td>Live API score</td><td>Authoritarian nudge on Y: a large state apparatus pulls the point toward the authoritarian pole. Also the preference signal for State Capitalism.</td></tr>
+            <tr><td>Social Conservatism (ID 8)</td><td>Live API score</td><td>Half of the <em>traditionalism</em> profile, for all entity types.</td></tr>
+            <tr><td>Religiousness (ID 32)</td><td>Percentile intensity, nations only</td><td>The other half of traditionalism. Excluded for regions and the world (different, unbounded unit there). Census gate for Theocracy, Clerical Fascism, Religious Democracy, Paleoconservatism; anti-gate for Juche and State Atheism; preference signal for Religious Socialism and National Conservatism.</td></tr>
+            <tr><td>Secularism (ID 62)</td><td>Live API score</td><td>Display and tie-breaker only (Social Liberalism, Classical Liberalism) &mdash; excluded from the traditionalism average because it is the exact inverse of Religiousness and would double-count the same signal.</td></tr>
+            <tr><td>Ideological Radicality (ID 45)</td><td>Live API score, rescaled to the observed ~51 ceiling</td><td>The <em>radicality</em> profile, which separates centrist from extremist ideologies occupying the same compass region.</td></tr>
+            <tr><td>Primitiveness (ID 69)</td><td>Percentile rank</td><td>Census gate for Anarcho-Primitivism (must rank among the most primitive).</td></tr>
+            <tr><td>Eco-Friendliness (ID 7)</td><td>Percentile rank</td><td>Alternative gate for Anarcho-Primitivism (deeply eco AND low-tech); preference signal for Eco-Socialism, Communalism, Participatory Socialism, Ecomodernism and Degrowth.</td></tr>
+            <tr><td>Scientific Advancement (ID 70)</td><td>Percentile rank</td><td>Anti-gate for Anarcho-Primitivism's eco path (a primitive nation cannot be high-tech); preference signal for Ecomodernism.</td></tr>
+            <tr><td>Average Income (ID 72)</td><td>Percentile rank</td><td><strong>Per-capita</strong> prosperity signal. Census preference for Degrowth: a degrowth society shows a bottom-half per-capita income while remaining eco-friendly. Used instead of aggregate Economic Output precisely because it is proportional to population, not to national size.</td></tr>
+            <tr><td>Sector: Agriculture (ID 17)</td><td>Percentile rank</td><td>Preference signal for Maoism: the &ldquo;peasant-centred&rdquo; claim is only retained where agriculture genuinely dominates the economy.</td></tr>
+            <tr><td>Intelligence (ID 36)</td><td>Percentile rank</td><td>Census gate and preference for Technocracy: rule by certified experts requires an exceptionally educated, intelligent society.</td></tr>
+            <tr><td>Political Apathy (ID 38, inverted)</td><td>Percentile rank (100 &minus; prank = civic mobilisation)</td><td>Preference signal for the mobilisation-family labels: Maoism, Jacobinism, Trotskyism, Luxemburgism, Left-Wing and Right-Wing Populism. A &ldquo;mass mobilisation&rdquo; claim is only supported where the population is measurably engaged, not apathetic.</td></tr>
+            <tr><td>Youth Rebelliousness (ID 54)</td><td>Percentile rank</td><td>Preference signal for Jacobinism and Trotskyism: the revolutionary-generation evidence behind a mobilised young population.</td></tr>
+            <tr><td>Taxation (ID 49)</td><td>Raw score (the tax rate itself) and percentile rank</td><td>Hard gate for the market-liberty ladder: <em>Anarcho-Capitalism</em> (tax rate &le; 30%), <em>Minarchism</em> (&le; 45%), <em>Libertarianism</em> (&le; 65%) and <em>Classical Liberalism</em> (&le; 75%) are each vetoed when the state levies more than the label's tolerable burden &mdash; however free the ownership structure looks, a confiscatory rate is definitionally incompatible with a stateless or minimal-state economy. Also a preference signal for Fiscal Conservatism (a low-tax state is its definitional trait).</td></tr>
+            <tr><td>Compliance (ID 42) / Safety (ID 43)</td><td>Percentile rank</td><td>Available corroboration for the law-and-order lean of authoritarian labels.</td></tr>
+            <tr><td>Game category (e.g. &ldquo;Constitutional Monarchy&rdquo;)</td><td>Live API <code>category</code> shard</td><td>Census gate for Constitutional Monarchism and Absolute Monarchism: the form of the head of state is a fact only the game's own category can confirm &mdash; no census number sees the crown.</td></tr>
+            <tr><td>Government budget shares</td><td>Live API <code>govt</code> shard (percentages of expenditure)</td><td>New evidence channel used in both gates and tie-breakers: <em>Spirituality</em> (Theocracy, Clerical Fascism &mdash; a state that actually funds religion), <em>Defence</em> (Neoconservatism), <em>Environment</em> (Eco-Socialism, Ecomodernism, Degrowth), <em>Welfare/Healthcare</em> (Social Democracy), <em>Administration</em> (Technocracy, State Capitalism, anti-preference for Fiscal Conservatism), <em>Commerce</em> (Plutocracy).</td></tr>
+            <tr><td>Pacifism (ID 47)</td><td>Percentile rank</td><td>Census gate for Anarcho-Pacifism (must actually be pacifist).</td></tr>
+            <tr><td>Authoritarianism (ID 53)</td><td>Percentile rank</td><td>Census gate for the fascist family and Authoritarianism: real state machinery, not merely a bottom-of-the-map position.</td></tr>
+            <tr><td>Defence Forces (ID 46)</td><td>Percentile rank</td><td>Alternative census gate for Fascism and Neo-Fascism (militarised path).</td></tr>
+            <tr><td>Weaponization (ID 59)</td><td>Percentile rank</td><td>Alternative census gate for Fascism, Neo-Fascism and Nazism (armed-society path).</td></tr>
+            <tr><td>Public Healthcare (ID 29) &amp; Public Education (ID 75)</td><td>Percentile rank</td><td>Tie-breaker preferences for the welfare-state left (Social Democracy, Fabian Socialism).</td></tr>
+            <tr><td>Income Equality (ID 33)</td><td>Percentile rank</td><td>Tie-breaker preference for Democratic Socialism, Participatory Socialism and Anarcho-Communism.</td></tr>
+            <tr><td>Patriotism (ID 87)</td><td>Percentile rank</td><td>Tie-breaker preference for National Conservatism, Right-Wing Populism and Neoconservatism.</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Observed inputs and range calibration.</strong> <em>Traditionalism</em> is the average of Social Conservatism and Religiousness. Secularism is deliberately excluded: in NS data it is the exact inverse of Religiousness, so including both would count the same signal twice. Every raw input is normalised to its <strong>observed range</strong> before use, because most census scales are not 0&ndash;100 indices:</p>
+        <table class="help-table">
+          <thead><tr><th>Scale</th><th>Observed raw range</th><th>Normalisation applied</th></tr></thead>
+          <tbody>
+            <tr><td>Social Conservatism (ID 8)</td><td>0 &ndash; 100</td><td>Used as-is (true index).</td></tr>
+            <tr><td>Religiousness (ID 32)</td><td>~1 &ndash; 226,000</td><td>Population-weighted index, not a percentage &mdash; the 0&ndash;100 percentile intensity (<code>100 &minus; prank</code>) carries the signal; the raw score is never compared directly.</td></tr>
+            <tr><td>Economic Freedom (ID 48)</td><td>&minus;100 &ndash; +100</td><td>Signed spectrum (state-run &harr; market); rescaled to 0&ndash;100 as <code>(raw + 100) / 2</code> so state-run economies are no longer collapsed into one bucket.</td></tr>
+            <tr><td>Ideological Radicality (ID 45)</td><td>0 &ndash; ~51</td><td>The very top nation scores ~51, so values are rescaled by that observed ceiling before labelling.</td></tr>
+            <tr><td>Secularism (ID 62)</td><td>0 &ndash; 100</td><td>Display only &mdash; it is the inverse of Religiousness and is excluded from the traditionalism average.</td></tr>
+            <tr><td>Civil Rights / Economy / Political Freedom (IDs 0, 1, 2)</td><td>0 &ndash; 100</td><td>Used as-is (true indices).</td></tr>
+            <tr><td>Welfare, Healthcare, Education, Defence, Weaponization, Primitiveness, Eco-Friendliness, Scientific Advancement, Pacifism, Authoritarianism, Patriotism&hellip;</td><td>Native units far outside 0&ndash;100 (dollars, signed indices, thousands)</td><td>Only ever consumed as percentile intensity (<code>100 &minus; prank</code>, always 0&ndash;100 by construction) in the census-signature and tie-breaker layers.</td></tr>
+          </tbody>
+        </table>
+        <p>Religiousness contributes to individual nations only: for regions and the world the percentile map differs, so those dossiers rely on Social Conservatism alone. <em>Radicality</em> is read from Ideological Radicality and rescaled as above. <em>Economic Freedom</em> contributes to the X coordinate (Section 4) and to the economic characterisation (laissez-faire / mixed-market / planned).</p>
+        <p>Each dossier&rsquo;s ideology card includes a written justification. The text states the assigned label and the evidence supporting it: the map zone and coordinates, the underlying production and civil-liberties measures, the society profile compared with the reference expectations, and &mdash; where a nearer ideology was not selected &mdash; the criterion that excluded it (a failed census signature or a percentile-profile comparison). Near-equal candidates are resolved by the entity&rsquo;s percentile profile across welfare, ecology, order and society scales; the world dossier and the historical rewind carry scores only and therefore use the map-based comparison alone.</p>
+        <p><strong>Evidence availability and the primacy of the current label.</strong> Not every evidence channel is archived by NationStates. The census <code>history</code> endpoint stores numeric scores only: it carries no record of the game <strong>category</strong> (the sole authority on the form of the head of state) and no record of the <strong>government budget shares</strong> used by several census requirements. The current, live classification is therefore the <strong>most precise label the data can produce</strong>: it alone can apply the category gate for the monarchy labels and the budget-share gates for Theocracy, Clerical Fascism, Neoconservatism, Social Democracy, Technocracy, State Capitalism and the green family. The historical rewind re-classifies each past month through the same pipeline but from archived scores alone, so category- and budget-dependent requirements cannot fire there; rules whose data is absent are skipped rather than treated as contradictory, and those months are labelled by compass position and society profile alone. Historical labels are consequently best read as map-based approximations, while the label in the dossier header &mdash; computed from the complete live evidence set &mdash; is always the authoritative one.</p>
+        <p>The table below reproduces the <strong>full reference data</strong> stored for every ideology: its family and exact anchor coordinates; the expected <em>traditionalism</em> and <em>radicality</em> (0&ndash;100) against which the entity is compared; any <strong>census requirement</strong> &mdash; a definitional trait that must actually be present in the data for the label to be retained &mdash; and any <strong>preferred profile</strong>, a set of traits used only to break near-ties on the map. Requirements draw on three evidence kinds: census percentile intensities, government budget shares (e.g. &ldquo;Spirituality budget share &ge; 20%&rdquo;) and the game&rsquo;s own <strong>category</strong> (the sole authority on the form of the head of state, used for the monarchy labels). A requirement listing several alternatives separated by &ldquo;or&rdquo; is satisfied when any one of them holds; a row showing &ldquo;definitional label only&rdquo; has no mandatory trait, and its description claims are all measurable through the anchors or the preferred profile. All thresholds use percentile intensity (<code>100 &minus; prank</code>, 0&ndash;100); a rule whose data is unavailable is skipped, so score-only contexts (the world dossier and archived months) are never vetoed on rank evidence.</p>
+        <p><strong>Description policy.</strong> Every sentence in the ideology summaries states a fact the data can confirm &mdash; claims that NationStates cannot measure (historical programmes, hereditary legitimacy, revolutionary intent) are either re-expressed through their measurable signature or explicitly anchored to the game category.</p>
+        <p><strong>Example nations.</strong> Under each ideology name the table lists a real nation whose census profile this classifier detects as that ideology (&ldquo;for example&rdquo;). The example rotates daily (one per ideology, cycling through the verified pool as the days advance) and clicking it opens that nation&rsquo;s dossier. The pools are maintained <strong>server-side</strong> with two cooperating sources, all inside the NationStates rate limits: (1) the <strong>daily data dump</strong> &mdash; the same once-a-day download used for the regional trade totals &mdash; is mined for candidates whose game category and freedom scores match an ideology&rsquo;s profile, at zero extra API cost; (2) <strong>region rosters</strong> of a few large gameplay regions rotated by day, sampled randomly. Every candidate is then verified live by the classifier above before joining a pool, so coverage grows monotonically over time even when no one is using the site. Two scheduled mechanisms cooperate: a daily scan ahead of the visitor-facing rotation, and an <strong>hourly &ldquo;tick&rdquo;</strong> that runs a small, strictly paced verification step (a handful of requests at one per second &mdash; far below the NationStates rate limit and invisible to browsing) <strong>only while any ideology still lacks an example</strong>; the moment all ideologies are covered the tick becomes a no-op and the hunting stops automatically. The page fetches the current pools once per day and caches them locally; a row that still shows &ldquo;&mdash;&rdquo; simply has no verified example yet, which is common for the rarest and most census-gated ideologies. The labels reflect each nation&rsquo;s profile at scan time and may evolve as the game does.</p>
+        <div class="help-table-scroll">
+          <table class="help-table help-table--wide">
+            <thead><tr><th>Ideology</th><th>Family</th><th>Anchor X / Y</th><th>Expected traditionalism</th><th>Expected radicality</th><th>Census requirement</th><th>Preferred profile</th><th>Summary</th></tr></thead>
+            <tbody id="help-ideology-body"></tbody>
+          </table>
+        </div>
+        <p class="help-note">The table is generated from the live classifier and therefore cannot diverge from the code. The label is a statistical classification, not an evaluation: real nations blend ideologies, and each dossier&rsquo;s explanation states which label was selected and why.</p>
+      </section>
+
+      <section class="help-sec">
+        <h3>6. Economy report &mdash; methodology</h3>
+        <p><strong>Inputs.</strong> The report consumes the three official word ratings (Economy, Civil Rights, Political Freedom), the population in millions, the tax rate and the Administration share of the budget. Each rating word maps to a fixed numeric modifier taken from the NSEconomy base-value tables.</p>
+        <p class="help-note"><strong>Model attribution.</strong> The report implements the <strong>NSEconomy</strong> economic model as documented at <a href="http://www.broomdces.com/nseconomy/calculations.php" target="_blank" rel="noopener">broomdces.com/nseconomy/calculations.php</a>. The base values (original v0.7.0 NSEconomy) are credited to <strong>Commerce Heights</strong>. The black-market statistics originate with <strong>Sunset</strong>, whose ideas Tbone Steak implemented and extended with permission (published 2011). NSEconomy itself is written by <strong>Tbone Steak</strong> (&copy; 2004&ndash;2026), with code contributions from Commerce Heights and Sunset. All modifiers and equations in this section are reproduced verbatim from that reference. The export formula requires totals over the entire region; the way a single-nation dossier obtains them is described under &ldquo;Net trade&rdquo; below.</p>
+
+        <h4>Step 0 &mdash; word ratings to numeric modifiers</h4>
+        <p>Representative values are listed below; the complete table is defined in code.</p>
+        <table class="help-table help-table--narrow">
+          <thead><tr><th>Economy rating</th><th>Production</th><th>Confidence modifier</th></tr></thead>
+          <tbody>
+            <tr><td>Frightening</td><td>35,000</td><td>+0.04</td></tr>
+            <tr><td>Powerhouse</td><td>25,000</td><td>+0.02</td></tr>
+            <tr><td>Thriving</td><td>20,000</td><td>+0.02</td></tr>
+            <tr><td>Good</td><td>7,500</td><td>0</td></tr>
+            <tr><td>Fair</td><td>4,000</td><td>−0.01</td></tr>
+            <tr><td>Weak</td><td>2,000</td><td>−0.02</td></tr>
+            <tr><td>Struggling</td><td>650</td><td>−0.04</td></tr>
+            <tr><td>Imploded</td><td>100</td><td>−0.06</td></tr>
+          </tbody>
+        </table>
+        <p class="help-note">Reading: an &ldquo;Economy: Good&rdquo; rating corresponds to production of 7,500 per person-year and a consumer-confidence modifier of 0; &ldquo;Powerhouse&rdquo; corresponds to 25,000 and +0.02. Civil Rights and Political Freedom ratings feed their respective modifiers analogously (e.g. Civil Rights &ldquo;Average&rdquo; &rarr; 0, &ldquo;Excellent&rdquo; &rarr; +0.03, &ldquo;Outlawed&rdquo; &rarr; &minus;0.08).</p>
+
+        <h4>Step 1 &mdash; primary multipliers</h4>
+        <dl class="econ-steps">
+          <div><dt>Worker enthusiasm <span>willingness to supply labour</span></dt>
+          <dd>Base value 1, modified by the civil-rights, political-freedom and tax terms. Formula: <code>1 + CivilRightsModifier + PoliticalFreedomModifier + TaxModifier</code>. Tax contribution: 0% adds +0.02; each subsequent ten-point bracket decreases the modifier by approximately 0.02 (10% &rarr; 0&hellip;&minus;0.02, 30% &rarr; &minus;0.04&hellip;&minus;0.06, 90% &rarr; &minus;0.16&hellip;&minus;0.18), interpolated within the bracket.</dd></div>
+          <div><dt>Consumer confidence <span>propensity to spend and invest</span></dt>
+          <dd>Base value 1, raised by a strong economy rating and by civil rights, lowered by a weak economy and by restrictions. Formula: <code>1 + EconomyModifier + CivilRightsConfidenceModifier</code>. The value participates in three downstream quantities: spending, imports and the black market.</dd></div>
+          <div><dt>Government efficiency <span>fiscal effectiveness of the state</span></dt>
+          <dd>Base value 1, reduced by political restrictions and divided by the <strong>administration-budget curve</strong>. The curve equals 1 when Administration spending is exactly 30% of the budget; otherwise, with <code>x = Administration % &divide; 100</code>: <code>curve = 1 &minus; x &times; sign(x &minus; 0.3) &times; ∛|x &minus; 0.3| + 0.2x</code>. Formula: <code>1 + PoliticalFreedomEfficiencyModifier &divide; AdminCurve</code>.</dd></div>
+        </dl>
+
+        <h4>Step 2 &mdash; sequence of derived aggregates</h4>
+        <p class="help-note">Each row of the report's ledger is produced in this order, every later quantity reusing the earlier ones. All of them use the entity&rsquo;s <strong>live</strong> census words, tax rate and population read at the moment the dossier is opened.</p>
+        <dl class="econ-steps">
+          <div><dt>Output <span>annual production, in dollars</span></dt>
+          <dd><code>Production &times; Population &times; WorkerEnthusiasm &times; ConsumerConfidence</code></dd></div>
+          <div><dt>Consumption <span>private spending net of tax</span></dt>
+          <dd><code>Output &times; (1 &minus; TaxRate)</code> &mdash; the share of production left in private hands after taxation. At typical tax rates (20&ndash;40%) this is the largest domestic component; at confiscatory rates (90%+) it collapses to a residual, because nearly all output is routed through the government instead. This is arithmetic, not an anomaly: the lower the tax, the larger the consumption share.</dd></div>
+          <div><dt>Government budget <span>total revenue raised</span></dt>
+          <dd><code>Output &times; GovEfficiency &times; (TaxRate + ConsumerConfidence/10 + WorkerEnthusiasm/40)</code> &mdash; the tax base constitutes the principal component; consumer confidence and worker enthusiasm contribute secondary components.</dd></div>
+          <div><dt>Government expenditures <span>revenue applied to services</span></dt>
+          <dd><code>Budget &times; GovEfficiency</code>. The difference between budget and expenditures constitutes government waste.</dd></div>
+          <div><dt>Imports</dt>
+          <dd><code>(1 &divide; ConsumerConfidence) &divide; 8 &times; (Consumption + GovernmentExpenditures)</code> &mdash; the import propensity rises with consumption and falls as confidence rises.</dd></div>
+          <div><dt>Net trade <span>exports minus imports, referenced to the region</span></dt>
+          <dd>Exports follow <code>Exports = TotalImports &times; (Output &divide; TotalOutput)</code>, where both totals are summed over <em>every nation of the region</em>; <code>NetTrade = Exports &minus; Imports</code>. These two region sums are the <strong>only figures in the report sourced from the official daily nations dump</strong> (nations.xml.gz) &mdash; exactly as the NationStates API documentation prescribes for region-wide aggregates, which are impractical to gather nation-by-nation. The dump is used for nothing else: every other line of the economy report (Output, Consumption, Budget, Imports, GDP, exchange rate, unemployment, black market) is computed from the <strong>live API</strong> of the entity whose dossier is open, so the dump's at-most-24-hour staleness affects only the region-wide reference totals of exports and imports, never the nation's own figures. A serverless endpoint downloads the dump <strong>at most once per day</strong> (the documentation asks scripts not to download it more frequently; a scheduled job pre-warms the cache at 04:00 UTC so a visitor almost never waits for the download), computes the totals of <em>every</em> region in a single streamed pass, and caches them so any region of any size resolves in one request. The report stays in a loading state (with a progress indicator, indeterminate while the server works) and is rendered once the totals arrive. When the endpoint is unreachable, the application falls back to requesting the export-related fields from each member nation &mdash; one minimal request per nation, paced to respect the API rate limit, without blocking the interface &mdash; and the provisional estimate <code>Imports &times; (ConsumerConfidence &minus; 1)</code> is shown only if even that scan cannot collect usable data.</dd></div>
+          <div><dt>GDP and GDP per capita</dt>
+          <dd><code>GDP = Consumption + NetTrade + GovernmentExpenditures</code> &nbsp;&middot;&nbsp; <code>GDP/capita = GDP &divide; Population</code></dd></div>
+          <div><dt>Government waste <span>revenue raised but not applied</span></dt>
+          <dd><code>GovernmentWaste = GovernmentBudget &minus; GovernmentExpenditures</code>. It is not displayed as its own ledger row, but it enters the report twice: as the shrinkage and full-waste terms of the black-market estimate (Step&nbsp;3), and implicitly in GDP, since expenditures (not the budget) are the component that counts.</dd></div>
+          <div><dt>Exchange rate <span>quoted in both directions</span></dt>
+          <dd><code>&radic;(GDP/capita &times; Production &divide; 404,000,000)</code> returns <strong>dollars per one unit of national currency</strong> &mdash; the value of the local unit expressed in dollars (NSEconomy's convention: a weak economy yields a small number, e.g. &ldquo;1 Sain = $0.01&rdquo;). The report quotes both directions: <code>1 local = X $</code> and <code>1 $ = 1/X local</code>. The nation&rsquo;s own currency name is used when available. Production is the per-person constant from the economy-rating table above.</dd></div>
+          <div><dt>Unemployment</dt>
+          <dd><code>(GDP/capita &minus; 37,500)&sup2; &times; 1.25e-10 &minus; 1.5e-6 &times; |GDP/capita &minus; 37,500| + 0.03</code>, floored at zero &mdash; a U-shaped function minimised near the reference income of 37,500.</dd></div>
+          <div><dt>Average income <span>private income per inhabitant</span></dt>
+          <dd><code>GDP/capita &times; 0.8</code> &mdash; the per-capita product discounted by a fixed 20% depreciation/retention adjustment, following the convention used by NSEconomy. It is a presentation figure: GDP/capita remains the primary output measure, and this row re-expresses it as take-home income.</dd></div>
+        </dl>
+
+        <h4>Step 3 &mdash; black market</h4>
+        <p>Underground activity is modelled as the sum of five terms, each driven by the three multipliers and by the size of the state. First define <code>BM&nbsp;Confidence = (GovEfficiency + WorkerEnthusiasm + ConsumerConfidence) &divide; 3</code> &mdash; an index of how well-run, motivated and self-confident the formal economy is. When this index falls below&nbsp;1, the model treats the economy as one in which informal activity flourishes; when it is above&nbsp;1, formal institutions suppress it.</p>
+        <ol class="econ-steps">
+          <li><strong>Consumer fraud and theft grow</strong> &mdash; <code>(1 &divide; BM&nbsp;Confidence) &times; 0.5 &times; Output</code>. When confidence is poor, off-the-books trade expands, but is capped around half of one confidence-unit of output because even a criminal world struggles to absorb more.</li>
+          <li><strong>Shrinkage under good governance</strong> &mdash; the same multiplier applied against government waste: <code>(1 &divide; BM&nbsp;Confidence) &times; 0.75 &times; GovernmentWaste</code>. A low-waste state leaves little public leakage to be recycled into underground profit.</li>
+          <li><strong>Ethics offset</strong> &mdash; a small subtraction proportional to state effectiveness: <code>(1 &divide; BM&nbsp;Confidence) &times; 0.75 &times; GovEfficiency</code>, representing societies whose ethical climate keeps enterprises on the books.</li>
+          <li><strong>Tax evasion and illegal enterprise</strong> &mdash; <code>Output &times; 3 &times; TaxRate &divide; GovEfficiency</code>. This is by far the dominant term at high tax rates: it scales with the entire output, triples for emphasis of the incentive effect, and explodes further as government efficiency drops, because a weak state cannot police evasion. It is the reason a 90%+-tax, low-efficiency state can show a black market <em>larger than its entire official output</em>.</li>
+          <li><strong>Government waste</strong> &mdash; added in full, since money the state raises but fails to apply to services is, in this model, leakage available to the informal economy.</li>
+        </ol>
+        <p><strong>Black market = growth &minus; shrinkage + evasion + waste</strong> (the ethics term being one of the subtractions). The net effect: high tax rates combined with weak institutions multiply the estimate dramatically, while a well-run, low-tax state keeps the shadow economy small &mdash; and the result may legitimately exceed the official GDP for confiscatory-tax regimes.</p>
+
+        <h4>Worked example</h4>
+        <div class="help-example">
+          <p>Reference nation: Economy rating <em>Good</em> (production 7,500; confidence modifier 0), Civil Rights <em>Average</em> (0), Political Freedom <em>Good</em> (&minus;0.04 to government efficiency), tax 25% (modifier &asymp; &minus;0.05), population 100 million, Administration 15% of budget.</p>
+          <ul>
+            <li>Worker enthusiasm = 1 + 0 + 0 − 0.05 = <strong>0.95</strong></li>
+            <li>Consumer confidence = 1 + 0 + 0 = <strong>1</strong></li>
+            <li>Admin curve ≈ 1.11, government efficiency = 1 + (−0.04) ÷ 1.11 ≈ <strong>0.96</strong></li>
+            <li>Output = 7,500 × 100,000,000 × 0.95 × 1 ≈ <strong>$713 billion</strong></li>
+            <li>Consumption = $713B × (1 − 0.25) ≈ <strong>$535 billion</strong></li>
+            <li>Government expenditures ≈ <strong>$248 billion</strong>, waste ≈ $9 billion</li>
+            <li>GDP ≈ 535 + 0 + 248 ≈ <strong>$783 billion</strong>, GDP/capita ≈ <strong>$7,800</strong></li>
+            <li>Unemployment &asymp; <strong>9.6%</strong>; exchange rate &asymp; <strong>0.38</strong>, quoted as &ldquo;1 $ = 0.38 local &nbsp;&middot;&nbsp; 1 local = 2.63 $&rdquo;; the black-market terms follow from Step 3.</li>
+          </ul>
+          <p class="help-note">Figures are rounded for presentation; the application computes at full precision.</p>
+        </div>
+
+        <p class="help-note"><strong>Unit convention.</strong> Dollar figures use the comparative unit in which NationStates publishes income and GDP, so economies using different national currencies can be compared; this report retains that same unit throughout.</p>
+      </section>
+
+      <section class="help-sec">
+        <h3>7. Regional dossiers and the comparison module</h3>
+        <ul>
+          <li><strong>Regional dossiers</strong> apply the same procedures to the region-level figures published by the API (averages, delegate, founder, officers, census). The compass and ideology of a region therefore describe its average member &mdash; representative for homogeneous regions, approximate for mixed ones.</li>
+          <li><strong>The comparison module</strong> fetches both entities in parallel and presents their compass positions, freedom profiles and key statistics side by side.</li>
+        </ul>
+      </section>
+
+      <section class="help-sec">
+        <h3>8. Spotlight entries (&ldquo;Nation/Region of the day&rdquo;)</h3>
+        <p>The selection is deterministic and requires no authentication: the region is taken from a fixed list indexed by the day of the year, and the featured nation is that region&rsquo;s roster entry at the same index. All users observe the same entries on a given day.</p>
+      </section>
+
+      <section class="help-sec help-sec--warn">
+        <h3>9. Limitations</h3>
+        <ul>
+          <li>Values marked as derived are model estimates &mdash; NSEconomy (credited in Section 6) where indicated, or this application&rsquo;s own procedures &mdash; and are not official NationStates figures. Only downloaded values are official.</li>
+          <li><strong>Why the figures may differ from other calculators.</strong> Other NationStates economy tools, such as NSEconomy at broomdces.com, apply the same equations but compute them against a <strong>frozen daily snapshot</strong> of the game (the official daily data dump, refreshed roughly once every 24&nbsp;hours). A NationStates nation is never static: answering an issue changes its civil-rights, economy and political-freedom ratings and its tax rate, populations grow, and world-census rankings shift. Any change made after that tool&rsquo;s snapshot is taken is invisible to it until the next refresh. This application instead reads the <strong>live API</strong> at the moment a dossier is opened, so its inputs reflect the current state of the game rather than a point in the past. For the region-wide export totals, which can only be obtained from the daily dump, the same once-per-day source is used as described above. The two tools therefore usually differ slightly for the same entity &mdash; not because one formula is wrong, but because they are answering slightly different questions: the daily-average question on one side and the current-instant question on the other. In principle the live input is the more faithful representation of the entity as it exists now; the trade-off is that it must be recomputed on each request, whereas the snapshot is stable all day.</li>
+          <li><strong>Net trade</strong> is referenced to the region&rsquo;s actual membership. The region totals are the <strong>only</strong> economy-report inputs taken from the official daily nations dump (at most 24&nbsp;hours old), which the server downloads at most once per day and caches; everything else in the report derives from the live API of the entity itself. When the dump-based endpoint is unreachable the site falls back to a per-member scan, and only if that cannot collect usable data does it show the self-consistent estimate, which is always flagged. GDP, the exchange rate and unemployment are recomputed from whichever net-trade value applies. Budget-percentage charts and census data are unaffected.</li>
+          <li>Percentile ranks are continuously updated as nations change; two dossiers opened minutes apart may differ slightly. Trend graphs reflect the history window exposed by the API.</li>
+          <li>The ideology label is a statistical classification based on observable data; it does not constitute a judgment on the nation or its players.</li>
+          <li><strong>API usage policy.</strong> All traffic to the NationStates API stays within its published limits. In the browser, requests pass through a single queue that spaces them at least 700&nbsp;ms apart and backs off on rate-limit responses, and background jobs are cancelled as soon as they are no longer needed. Server-side jobs are stricter still: the daily-dump download happens at most once per 24&nbsp;hours (Section 6), and the example-nation scan runs once per day with one request per second, a hard cap per run, a lock against overlapping runs and an immediate stop on rate limiting &mdash; it never bursts. The site consequently never needs dozens or hundreds of rapid requests for any single feature; region-wide sums come from the dump and example pools from the scheduled scan.</li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="script.js?v=3" defer></script>
+</body>
+</html>

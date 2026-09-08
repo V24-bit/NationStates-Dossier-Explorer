@@ -1,0 +1,9 @@
+{
+  "name": "nationstates-dossier-explorer",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Static NationStates dossier explorer. Readable sources in index.html / style.css / script.js; the Vercel build copies them into dist/.",
+  "scripts": {
+    "build": "node build.cjs"
+  }
+}

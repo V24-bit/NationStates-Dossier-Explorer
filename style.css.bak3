@@ -1,0 +1,486 @@
+/* =========================================================================
+   NATIONSTATES DOSSIER EXPLORER — style.css
+   Theme: classic early-2000s forum (phpBB-inspired) — blue title bars,
+   bordered boxes, striped tables, Verdana. No webfonts, no gradients-heavy
+   "modern SaaS" look on purpose.
+   ========================================================================= */
+
+:root{
+  --page-bg: #E4E9ED;
+  --panel-bg: #FFFFFF;
+  --panel-bg-alt: #F5F7F9;
+  --border: #98AAB1;
+  --border-soft: #C9D3DA;
+  --title-dark: #0B3D66;
+  --title-light: #4A7FA5;
+  --text: #1A1A1A;
+  --text-muted: #5B6770;
+  --link: #06C;
+  --link-visited: #5D8AA8;
+  --online: #2E7D32;
+  --offline: #B00020;
+  --gold: #B8860B;
+}
+
+*{ box-sizing: border-box; }
+
+html,body{
+  margin:0;
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+a{ color: var(--link); text-decoration: none; }
+a:hover{ text-decoration: underline; }
+a:visited{ color: var(--link-visited); }
+b{ font-weight: bold; }
+
+.forum-shell{ max-width: 1180px; margin: 0 auto; padding: 10px 12px 24px; }
+
+/* ---------- HEADER ---------- */
+.forum-header{
+  background: linear-gradient(180deg, #0B3D66 0%, #072A47 100%);
+  border: 1px solid #06233C;
+  padding: 14px 56px 16px 18px;
+  color: #fff;
+  position: relative;
+}
+.forum-header__logo{
+  font-size: 22px; font-weight: bold; font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: 0.01em;
+}
+.forum-header__logo span{ color: #9FD1FF; }
+
+.forum-header__tagline{ font-size: 11px; color: #C7DCEC; margin-top: 2px; }
+
+/* ---------- BREADCRUMB / CLOCK ---------- */
+.forum-breadcrumb{
+  background: var(--panel-bg-alt);
+  border: 1px solid var(--border);
+  border-top: none;
+  padding: 6px 12px;
+  font-size: 11px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.forum-breadcrumb__clock{ font-family: "Courier New", monospace; }
+
+/* ---------- STATS BAR ---------- */
+.forum-statsbar{
+  background: #FFF6D9; border: 1px solid #E0C97A; border-top:none;
+  padding: 5px 12px; font-size: 11px; color: #6B5A1E; text-align:center;
+}
+
+/* ---------- SEARCH BOX ---------- */
+.searchbox{ margin-top: 14px; border: 1px solid var(--border); }
+.searchbox__title{
+  background: linear-gradient(180deg, var(--title-light), var(--title-dark));
+  color: #fff; font-weight: bold; padding: 5px 10px; font-size: 12px;
+}
+.searchbox__body{ background: var(--panel-bg); padding: 12px; }
+.tabs{ display:flex; gap:0; margin-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
+.tab{
+  font-family: inherit; font-size: 11px; font-weight:bold; letter-spacing: .02em;
+  background: var(--panel-bg-alt); border: 1px solid var(--border-soft); border-bottom:none;
+  color: var(--text-muted); padding: 6px 16px; cursor:pointer; margin-right:3px; margin-bottom:-1px;
+}
+.tab.is-active{ background: var(--panel-bg); color: var(--title-dark); border-bottom: 1px solid var(--panel-bg); }
+.tab:hover:not(.is-active){ color: var(--text); }
+
+.searchbox__field{ display:flex; border: 1px solid var(--border); background:#fff; }
+.searchbox__prefix{ font-family: "Courier New", monospace; color: var(--text-muted); display:flex; align-items:center; padding: 0 0 0 10px; font-size:11px; }
+#query-input{
+  flex:1; border:none; outline: 1px dotted transparent; padding: 8px 8px; font-family: inherit; font-size: 13px;
+  background: #FFFFF0;
+}
+#query-input:focus{ background: #FFFFFF; outline: 1px dotted var(--title-light); }
+
+.btn-primary{
+  background: linear-gradient(180deg, #4A7FA5, #2E5C82);
+  border: 1px solid #1E3E58; color: #fff; font-weight: bold; font-size: 12px;
+  padding: 0 18px; cursor:pointer;
+}
+.btn-primary:hover{ background: linear-gradient(180deg, #5A8FB5, #3E6C92); }
+.btn-primary:active{ background: #234A66; }
+
+.btn-ghost{
+  background: var(--panel-bg-alt); border: 1px solid var(--border-soft); color: var(--link);
+  font-size: 11px; font-weight:bold; padding: 4px 10px; cursor:pointer;
+}
+.btn-ghost:hover{ background: #E9EFF3; text-decoration: underline; }
+
+.searchbox__hint{ font-size: 11px; color: var(--text-muted); margin: 8px 0 0; }
+.searchbox__hint em{ font-style: normal; font-family: "Courier New", monospace; }
+
+/* ---------- STATUS BANNER ---------- */
+.banner{
+.ns-note{ font-size: 13px; color: var(--text-muted); padding: 12px; border: 1px solid var(--border-soft); background: var(--panel-bg-alt); }
+  margin-top: 10px; padding: 8px 12px; border: 1px solid #F0C36D; background: #FFF6D9;
+  font-size: 12px; color: #6B5A1E;
+}
+.banner.is-error{ border-color: #E0A0A0; background: #FCE7E7; color: #7A1E1E; }
+.banner.is-warn{ border-color: #E0C97A; background: #FFF6D9; color: #6B5A1E; }
+
+/* ---------- DOSSIER GRID ---------- */
+#dossier-root{ margin-top: 12px; }
+.dossier{ display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; grid-auto-flow: row dense; }
+
+.card{ background: var(--panel-bg); border: 1px solid var(--border); padding: 0 10px 12px; }
+.card--wide{ grid-column: 1 / -1; }
+.card--identity{ grid-column: span 3; padding:0; display:flex; flex-direction:column; }
+.identity-hero{ position:relative; width:100%; height:120px; overflow:hidden; background:var(--panel-bg-alt); display:none; border-bottom:1px solid var(--border); }
+.identity-hero.is-visible{ display:block; }
+.identity__banner{ width:100%; height:100%; object-fit:cover; display:block; }
+.identity-body{ display:flex; flex:1; min-height:0; }
+
+.card__title{
+  background: linear-gradient(180deg, var(--title-light), var(--title-dark));
+  color: #fff; font-weight: bold; font-size: 12px; margin: 0 -12px 10px; padding: 5px 10px;
+}
+.card__title-row{ display:flex; align-items:center; justify-content:space-between; gap:8px;
+  background: linear-gradient(180deg, var(--title-light), var(--title-dark)); margin: 0 -12px 10px; padding: 4px 6px 4px 10px; }
+.card__title-row .card__title{ background:none; margin:0; padding:0; }
+
+/* ---------- PROFILE BOX (identity) ---------- */
+.profile-box{
+  width: 190px; flex-shrink:0; background: var(--panel-bg-alt); border-right: 1px solid var(--border);
+  padding: 12px; text-align:center;
+}
+.avatar-frame{
+  width: 160px; height: 106px; margin: 0 auto 8px;
+  background: #fff; border: 2px inset #cfd8dd;
+  display:flex; align-items:center; justify-content:center; overflow:hidden;
+}
+.identity__flag{ max-width: 100%; max-height: 100%; object-fit: contain; }
+.profile-box__badge{
+  display:inline-block; font-size: 10.5px; font-weight:bold; letter-spacing: .02em;
+  padding: 2px 8px; border: 1px solid var(--border-soft); border-radius: 2px; margin-bottom: 10px;
+  color: var(--text-muted); background:#fff;
+}
+.profile-box__badge.is-online{ color: var(--online); border-color: var(--online); }
+.profile-box__badge.is-offline{ color: var(--offline); border-color: var(--offline); }
+.profile-box__stats{ width:100%; font-size:11px; border-collapse: collapse; }
+.profile-box__stats td{ padding: 3px 0; text-align:left; border-top: 1px dotted var(--border-soft); }
+.profile-box__stats td:first-child{ color: var(--text-muted); }
+.profile-box__stats td:last-child{ text-align:right; font-weight:bold; }
+.profile-box__stats tr:first-child td{ border-top:none; }
+
+.profile-main{ flex:1; min-width:0; padding: 14px 16px; }
+.profile-main__head{
+  font-size: 11px; color: var(--text-muted); display:flex; justify-content:space-between;
+  border-bottom: 1px dashed var(--border-soft); padding-bottom: 6px; margin-bottom: 8px;
+}
+.identity__name{ font-family: Georgia, "Times New Roman", serif; font-size: 24px; margin: 0 0 2px; color: var(--title-dark); }
+.identity__fullname{ margin: 0 0 6px; color: var(--text-muted); }
+.identity__motto{ margin: 0 0 8px; font-style: italic; color: #2E5C82; }
+.identity__motto.identity__power{ font-style: normal; font-size: 11px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; margin: 0 0 8px; }
+.identity__motto.identity__power .power-label{ letter-spacing: .05em; font-size: 10px; color: var(--text-muted); }
+.identity__motto.identity__power b{ color: var(--title-dark); }
+.identity__compass{ display:flex; align-items:center; gap:10px; margin: 10px 0 4px; padding: 8px 10px; background: var(--panel-bg-alt); border: 1px solid var(--border-soft); }
+.identity__compass-canvas{ width: 110px; height: 72px; flex:0 0 auto; }
+.identity__compass-meta{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+.identity__compass-label{ font-size:10px; letter-spacing:.06em; color: var(--text-muted); font-weight:bold; }
+.identity__compass-ideology{ font-size:13px; font-weight:bold; color: var(--title-dark); }
+
+/* ---------- LEDGER TABLE ---------- */
+.ledger-table{ width:100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 12px; }
+.ledger-table td{ padding: 5px 6px; border-bottom: 1px solid var(--border-soft); }
+.ledger-table td:first-child{ color: var(--text-muted); width: 44%; }
+.ledger-table td:last-child{ font-weight:bold; text-align:right; }
+.ledger-table tr:nth-child(even){ background: var(--panel-bg-alt); }
+.ledger__desc{ margin: 4px 0 0; font-size: 11.5px; color: var(--text-muted); font-style: italic; white-space: pre-line; }
+
+.mini-title{ font-size: 11px; font-weight:bold; color: var(--text-muted); margin: 0 0 6px; }
+
+/* ---------- CHARTS ---------- */
+.chart-box{ position:relative; height: 200px; margin: 8px 0 4px; }
+.chart-box--square{ height: 250px; }
+.chart-box--wide{ height: 170px; }
+#chart-polcompass, #chart-polcompass-region, #chart-cmp-compass, #chart-cmp-radar{ width:100%; height:100%; display:block; }
+.chart-box--compass{ aspect-ratio: 1 / 1; height: auto !important; max-height: 420px; margin-left: auto; margin-right: auto; }
+.compass__labels{ font-size:12px; }
+.compass__labels p{ margin: 4px 0; }
+.dot{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+.dot--blue{ background:#2E5C82; } .dot--gold{ background:var(--gold); } .dot--red{ background:#B00020; }
+
+.wa-status{ font-weight:bold; color: var(--title-dark); margin: 8px 0 0; }
+.wa-badges{ margin-top: 10px; }
+
+/* ---------- CHIPS ---------- */
+.chips{ display:flex; flex-wrap:wrap; gap:5px; margin: 6px 0; }
+.chips--scroll{ max-height: 130px; overflow-y:auto; padding: 2px; border: 1px solid var(--border-soft); background: var(--panel-bg-alt); }
+.chips--attr .chip{ background: var(--panel-bg-alt); border-style:dashed; color:#2E5C82; }
+
+/* ---------- LEGISLATION + STAT TILES ---------- */
+.stat-tiles{ display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin: 10px 0 6px; }
+.stat-tile{ border:1px solid var(--border-soft); background: var(--panel-bg-alt); padding:8px 10px; }
+.stat-tile b{ display:block; font-family:Georgia, serif; font-size:18px; color:var(--title-dark); margin-top:2px; }
+.stat-tile__label{ font-size:10px; color:var(--text-muted); font-weight:bold; letter-spacing:0.04em; }
+.chip{
+  font-size: 11px; color: var(--text); border:1px solid var(--border-soft); background: #fff;
+  padding: 2px 8px; border-radius: 2px;
+}
+
+/* ---------- CENSUS ---------- */
+.census-top{ list-style:none; margin: 8px 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.census-row{ display:flex; align-items:center; gap:8px; font-size:11.5px; }
+.census-row__name{ flex: 0 0 170px; color: var(--text-muted); }
+.census-row__bar{ flex:1; height: 8px; background: var(--panel-bg-alt); border: 1px solid var(--border-soft); }
+.census-row__fill{ height:100%; background: linear-gradient(90deg, #4A7FA5, var(--gold)); }
+.census-row__val{ flex:0 0 auto; font-family: "Courier New", monospace; font-size: 11px; width: 190px; text-align:right; }.census-full{ margin: 10px 0 0; border-top: 1px solid var(--border-soft); padding-top: 10px; max-height: 400px; overflow-y: auto; }
+
+/* ---- Census Explorer ---- */
+.census-hint{ font-size: 11px; }
+.census-tabs{ display:flex; flex-wrap:wrap; gap:5px; margin: 8px 0 12px; }
+.census-tab{ font: inherit; font-size: 10.5px; padding: 3px 8px; background: var(--panel-bg-alt); border: 1px solid var(--border-soft); cursor: pointer; color: var(--text-muted); }
+.census-tab:hover{ border-color: var(--title-light); color: var(--title-dark); }
+.census-tab.is-active{ background: var(--title-dark); border-color: var(--title-dark); color: #fff; }
+.census-detail{ display:grid; grid-template-columns: minmax(260px, 1fr) minmax(220px, 340px); gap: 14px; align-items: start; }
+.census-detail__head{ display:flex; align-items:center; gap:8px; margin-bottom: 8px; }
+.census-detail__name{ font-size: 14px; font-weight: bold; color: var(--title-dark); }
+.census-detail__badge{ font-size: 10.5px; padding: 2px 8px; background: var(--panel-bg-alt); border: 1px solid var(--border-soft); color: var(--text-muted); }
+.census-detail__badge.is-strong{ background: #EAF2E7; border-color: #6B8E5A; color: #3F5E33; }
+.census-detail__badge.is-elite{ background: #FBF3DC; border-color: var(--gold); color: var(--gold); font-weight: bold; }
+.census-gauge{ margin: 4px 0 12px; }
+.census-gauge__bar{ position:relative; height: 14px; background: var(--panel-bg-alt); border: 1px solid var(--border-soft); }
+.census-gauge__fill{ height:100%; background: linear-gradient(90deg, #4A7FA5, var(--title-dark)); transition: width .4s ease; }
+.census-gauge__fill.is-top{ background: linear-gradient(90deg, #6B8E5A, #3F5E33); }
+.census-gauge__fill.is-low{ background: linear-gradient(90deg, #A65D57, #7E3B37); }
+.census-gauge__labels{ display:flex; justify-content:space-between; font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.census-gauge__score{ font-family: "Courier New", monospace; font-weight: bold; color: var(--title-dark); }
+.census-detail__stats{ display:grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.census-detail__stats .stat-tile{ display:flex; flex-direction:column; gap:1px; padding: 5px 7px; background: var(--panel-bg-alt); border: 1px solid var(--border-soft); }
+.census-detail__stats .stat-tile__label{ font-size: 9px; letter-spacing: .04em; color: var(--text-muted); }
+.census-detail__stats .stat-tile__value{ font-family: "Courier New", monospace; font-size: 12.5px; font-weight: bold; color: var(--title-dark); }
+.census-detail__chart{ height: 150px; }
+.census-all{ margin-top: 12px; border-top: 1px solid var(--border-soft); padding-top: 8px; max-height: 340px; overflow-y: auto; }
+.census-all__head{ margin-bottom: 5px; font-size: 10.5px; }
+.census-table--click tbody tr{ cursor: pointer; }
+.census-table--click tbody tr:hover td{ background: #EAF0F4; }
+.census-table--click tbody tr.is-selected td{ background: #E3ECF2; font-weight: bold; }
+.census-table{ width:100%; border-collapse: collapse; font-size: 11px; }
+.census-table th{ text-align:left; background: var(--panel-bg-alt); border-bottom: 2px solid var(--border); padding: 5px 6px; position: sticky; top:0; }
+.census-table td{ padding: 5px 6px; border-bottom: 1px solid var(--border-soft); }
+.census-table tr:nth-child(even) td{ background: var(--panel-bg-alt); }
+
+/* ---------- ACTIVITY LOG / RMB / DISPATCHES / OFFICERS ---------- */
+.activity-log, .dispatch-list, .rmb-feed{ list-style:none; margin: 8px 0; padding:0; }
+.activity-log li, .dispatch-list li, .rmb-feed li{
+  padding: 6px 0; border-bottom: 1px dotted var(--border-soft); display:flex; gap:10px; font-size: 11.5px;
+}
+.activity-log li:last-child, .dispatch-list li:last-child, .rmb-feed li:last-child{ border-bottom:none; }
+.log-time{ flex:0 0 108px; color: var(--text-muted); font-family: "Courier New", monospace; font-size: 10.5px; padding-top:1px; }
+.log-text{ flex:1; }
+.rmb-feed .log-text::before{ content: "» "; color: var(--title-light); }
+
+.muted{ color: var(--text-muted); font-style: italic; list-style:none; }
+
+/* ---------- FOOTER ---------- */
+.forum-footer{ margin-top: 16px; padding: 10px 4px; text-align:center; color: var(--text-muted); font-size: 11px; }
+.forum-footer p{ margin: 3px 0; }
+.forum-footer__small{ font-family: "Courier New", monospace; }
+
+/* ---------- SPOTLIGHT (Nation/Region of the Day) ---------- */
+.spotlights{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.spotlight-card{ border: 1px solid var(--border); background: var(--panel-bg); }
+.spotlight-card__title{
+  background: linear-gradient(180deg, var(--title-light), var(--title-dark));
+  color:#fff; font-weight:bold; font-size: 12px; padding: 5px 10px;
+}
+.spotlight-card__body{
+  display:block; width:100%; text-align:left; font: inherit; cursor:pointer;
+  padding: 10px 12px; color: var(--text); font-size: 12px; line-height:1.4; border:none; background:var(--panel-bg);
+}
+.spotlight-card__body:hover{ background: var(--panel-bg-alt); }
+.spotlight-card__body strong{ color: var(--title-dark); font-size: 14px; display:block; margin-top: 3px; }
+.spotlight-card__body small{ color: var(--text-muted); }
+.spot-tag{ display:inline-block; font-size:10px; font-weight:bold; color: var(--link); border:1px solid var(--border-soft); padding:1px 6px; border-radius:2px; margin-bottom:4px; }
+.spotlight-card__body:hover .spot-tag{ text-decoration:underline; }
+
+/* ---------- COMPARE BAR + PANEL ---------- */
+.compare-panel{ margin-top: 10px; border: 1px solid var(--border); }
+.compare-panel .searchbox__body{ padding: 12px; }
+.compare-grid{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cmp-field label{ display:block; font-size:10.5px; color: var(--text-muted); margin:0 0 3px 1px; font-weight:bold; }
+.cmp-field input{ width:100%; border:1px solid var(--border); background:#FFFFF0; font-family:inherit; font-size:12px; padding:7px 8px; }
+.cmp-field input:focus{ outline:1px dotted var(--title-light); background:#fff; }
+.cmp-tabs{ margin-bottom:10px; }
+
+/* ---------- COMPARE RESULT ---------- */
+.cmp-result{ margin-top: 14px; }
+.cmp-head{ display:grid; grid-template-columns: 1fr auto 1fr; gap:10px; align-items:stretch; margin-bottom:12px; }
+.cmp-entity{ border:1px solid var(--border); background:var(--panel-bg-alt); padding:10px 12px; }
+.cmp-entity--a{ text-align:left; }
+.cmp-entity--b{ text-align:right; }
+.cmp-entity img{ max-height:46px; max-width:80px; border:1px solid var(--border-soft); background:#fff; vertical-align:middle; }
+.cmp-entity__name{ font-family:Georgia, serif; font-size:16px; font-weight:bold; color:var(--title-dark); display:block; margin-top:6px; }
+.cmp-entity__quad{ font-size:11px; color:var(--text-muted); }
+.cmp-vs{ align-self:center; font-weight:bold; color:var(--text-muted); font-size:14px; }
+.cmp-grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+.cmp-table-wrap{ overflow-x:auto; }
+.cmp-table{ width:100%; border-collapse:collapse; font-size:12px; margin:6px 0 4px; }
+.cmp-table th{ text-align:left; background:var(--panel-bg-alt); border-bottom:2px solid var(--border); padding:6px 8px; font-size:11px; }
+.cmp-table td{ padding:6px 8px; border-bottom:1px solid var(--border-soft); }
+.cmp-table tr:nth-child(even) td{ background:var(--panel-bg-alt); }
+.cmp-table td.v{ text-align:right; font-family:"Courier New", monospace; font-weight:bold; }
+.cmp-table td.diff{ text-align:center; }
+.cmp-a{ color:#2E5C82; } .cmp-b{ color:#C9A227; }
+.cmp-winner{ position:relative; }
+.cmp-winner::before{ content:"●"; position:absolute; right:-10px; top:50%; transform:translateY(-50%); color:#2E7D32; font-size:9px; }
+
+/* ---------- POLITICAL COMPASS ---------- */
+.ideology-line{ font-size: 14px; font-weight:bold; color: var(--title-dark); margin: 10px 0 4px; }
+.progressive{ margin: 10px 0 4px; }
+.progressive__head{ display:flex; justify-content:space-between; font-size:12px; color: var(--text-muted); margin-bottom:4px; }
+.progressive__head b{ font-size:12.5px; color: var(--title-dark); }
+.progressive__bar{ height:8px; background: var(--panel-bg-alt); border:1px solid var(--border-soft); }
+.progressive__fill{ height:100%; background: linear-gradient(90deg, #3F6E8F, #4A7FA5, var(--title-dark)); transition: width .4s ease; }
+.progressive__fill.is-low{ background: linear-gradient(90deg, #A65D57, #7E3B37); }
+.ideology-desc{ margin:0; font-size: 12px; color: var(--text-muted); }
+.compass-legend{ display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px; font-size:10.5px; color:var(--text-muted); }
+.compass-legend span{ display:inline-flex; align-items:center; gap:4px; }
+.compass-legend i{ width:9px; height:9px; border-radius:2px; display:inline-block; }
+
+/* ---------- ECONOMY ---------- */
+.economy-grid{ display:grid; grid-template-columns: 1fr 1.2fr; gap: 16px; }
+.economy-charts .chart-box{ margin-top:0; }
+.economy-note{ font-size: 11px; color: var(--text-muted); font-style: italic; margin-top: 8px; }
+
+/* ---------- CLICKABLE DATA ---------- */
+.clickable{ color: var(--link); cursor:pointer; font-weight:bold; }
+.clickable:hover{ text-decoration: underline; }
+.ledger-table td a, .profile-box__stats td a{ color: var(--link); font-weight:bold; }
+.census-row__name a{ color: var(--text); }
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 900px){
+  .dossier{ grid-template-columns: repeat(2,1fr); }
+  .economy-grid{ grid-template-columns: 1fr; }
+}
+@media (max-width: 760px){
+  .cmp-grid2{ grid-template-columns:1fr; }
+  .census-detail{ grid-template-columns: 1fr; }
+  .census-detail__chart{ height: 130px; }
+}
+@media (max-width: 640px){
+  .card--identity{ flex-direction:column; }
+  .profile-box{ width:auto; border-right:none; border-bottom: 1px solid var(--border); }
+  .dossier{ grid-template-columns: 1fr; }
+  .census-row{ flex-wrap:wrap; }
+  .census-row__val{ width:auto; }
+  .spotlights{ grid-template-columns: 1fr; }
+  .compare-grid{ grid-template-columns: 1fr; }
+  .cmp-head{ grid-template-columns:1fr; }
+  .cmp-vs{ text-align:center; }
+  .cmp-entity--b{ text-align:left; }
+  .add-space{ display:none; }
+}
+
+/* Government spending donut: taller box + wrap-around HTML legend so many
+   categories never get clipped like the built-in right-side legend did */
+.chart-box--govt{ height: 240px; }
+.govt-legend{ display:flex; flex-wrap:wrap; gap:4px 14px; margin:10px 0 0; font-size:11.5px; color:var(--text-main, #333); }
+.govt-legend__item{ display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+.govt-legend__dot{ width:10px; height:10px; border-radius:50%; flex:0 0 auto; border:1px solid rgba(0,0,0,.15); }
+/* Registration File is a long table: pairing it with one chart avoids the
+   large empty gap left when a tall 1-col card sits alone in a row */
+.card--ledger-wide{ grid-column: span 2; }
+/* Political Compass card: put the compass and the ideology/progressiveness
+   side by side so the full-width card has no empty side margins */
+.card--compass-wide{ grid-column: 1 / -1; display:grid; }
+.compass-layout{ display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 18px; align-items:start; }
+.compass-layout__chart{ display:flex; flex-direction:column; align-items:center; }
+.compass-layout__info{ display:flex; flex-direction:column; justify-content:center; min-width:0; }
+.compass-layout__info .progressive{ margin:0 0 8px; }
+@media (max-width: 760px){
+  .compass-layout{ grid-template-columns: 1fr; }
+}
+
+/* Census history toggle button */
+.census-history-toggle{ margin-left:auto; flex:0 0 auto; font-size:11px; padding:3px 8px; border:1px solid var(--border-soft); background:var(--panel-bg-alt); color:var(--link); cursor:pointer; border-radius:2px; }
+.census-history-toggle:hover{ border-color:var(--link); }
+.census-history-toggle:focus-visible{ outline:2px solid var(--link); outline-offset:1px; }
+
+/* ---- World Census Explorer: overview radar + standouts ---- */
+.census-overview{ display:grid; grid-template-columns: minmax(0, 1.2fr) minmax(200px, 0.8fr); gap: 16px; align-items:start; margin-bottom: 10px; }
+.census-overview__title{ font-size: 12px; font-weight: bold; color: var(--title-dark); margin-bottom: 4px; }
+.census-overview__title .muted{ font-weight: normal; }
+.chart-box--radar{ height: 260px; margin: 0; }
+.census-standouts__head{ font-size: 11px; letter-spacing: .05em; color: var(--text-muted); margin-bottom: 6px; }
+.census-standouts__list{ display:flex; flex-direction:column; gap: 6px; }
+.census-standout{ display:flex; flex-direction:column; align-items:flex-start; gap:1px; text-align:left; font: inherit; cursor:pointer; padding: 6px 9px; border: 1px solid var(--border-soft); background: var(--panel-bg-alt); }
+.census-standout:hover{ border-color: var(--link); }
+.census-standout__name{ font-size: 11px; font-weight: bold; color: var(--title-dark); }
+.census-standout__val{ font-family: "Courier New", monospace; font-size: 10.5px; color: var(--text-muted); }
+.census-standout--best{ border-left: 3px solid #3F5E33; }
+.census-standout--best .census-standout__val{ color: #3F5E33; }
+.census-standout--worst{ border-left: 3px solid #7E3B37; }
+.census-standout--worst .census-standout__val{ color: #7E3B37; }
+@media (max-width: 760px){
+  .census-overview{ grid-template-columns: 1fr; }
+  .chart-box--radar{ height: 220px; }
+}
+
+/* ---- Profile Ladder ---- */
+.census-ladder{ margin: 14px 0 4px; border-top: 1px solid var(--border-soft); padding-top: 10px; }
+.census-ladder__head{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom: 10px; }
+.census-ladder__title{ font-size: 13px; font-weight: bold; color: var(--title-dark); }
+.census-ladder__legend{ display:flex; flex-wrap:wrap; gap:6px; }
+.census-legend-chip{ display:inline-flex; align-items:center; gap:5px; font-size:10px; color:var(--text-muted); }
+.census-legend-dot{ width:9px; height:9px; border-radius:2px; display:inline-block; }
+.census-ladder__body{ display:grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap:12px; }
+.census-ladder-group{ border:1px solid var(--border-soft); background: var(--panel-bg-alt); border-radius:4px; overflow:hidden; }
+.census-ladder-group.is-featured{ box-shadow: inset 3px 0 0 var(--link); }
+.census-ladder-group__head{ display:flex; align-items:center; gap:8px; padding:6px 9px; background: var(--panel-bg); border-bottom:1px solid var(--border-soft); }
+.census-ladder-group__dot{ width:10px; height:10px; border-radius:2px; display:inline-block; }
+.census-ladder-group__name{ font-size:11px; font-weight:bold; color:var(--title-dark); flex:1; }
+.census-ladder-group__count{ font-size:10px; color:var(--text-muted); font-family:"Courier New", monospace; }
+.census-ladder-row{ display:flex; align-items:center; gap:8px; width:100%; text-align:left; font:inherit; padding:4px 9px; cursor:pointer; background:transparent; border:none; border-bottom:1px solid var(--border-soft); }
+.census-ladder-row:last-child{ border-bottom:none; }
+.census-ladder-row:hover{ background: var(--panel-bg); }
+.census-ladder-row__name{ font-size:11px; color:var(--text); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.2; }
+.census-ladder-item.is-featured{ background: linear-gradient(90deg, rgba(46,92,130,0.08), transparent); }
+.census-ladder-item.is-featured .census-ladder-row__name{ font-weight:bold; color:var(--title-dark); }
+.census-ladder-row__track{ height:7px; background: var(--panel-bg); border:1px solid var(--border-soft); border-radius:2px; overflow:hidden; position:relative; }
+.census-ladder-row__fill{ height:100%; display:block; }
+.census-ladder-row__val{ font-family:"Courier New", monospace; font-size:10px; color:var(--text-muted); text-align:right; white-space:nowrap; }
+@media (max-width: 760px){
+  .census-ladder__body{ grid-template-columns: 1fr; }
+}
+.census-ladder-row__name{ flex: 0 1 42%; }
+.census-ladder-row__track{ flex: 1 1 auto; min-width: 40px; }
+.census-ladder-row__val{ flex: 0 0 auto; }
+
+/* "by Thenium" pinned to the bottom-right of the header box */
+.forum-header .forum-header__by{
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  font-family: Verdana, Arial, sans-serif;
+  font-size: 10px;
+  font-weight: normal;
+  color: #8FB6D0;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+@media (max-width: 640px){
+  .forum-header{ padding: 14px 18px 26px; }
+  .forum-header .forum-header__by{ right: 14px; bottom: 8px; }
+}
+
+
+/* ---- Adopted Policies, now its own card ---- */
+.card--policies .chips{ margin: 2px 0 0; }
+
+/* ---- Profile Ladder accordion (click a scale to reveal its trend) ---- */
+.census-ladder-item{ border-bottom:1px solid var(--border-soft); }
+.census-ladder-item:last-child{ border-bottom:none; }
+.census-ladder-row__chevron{ margin-left:auto; color:var(--text-muted); font-size:10px; transition: transform .18s ease; }
+.census-ladder-row.is-open .census-ladder-row__chevron{ transform: rotate(180deg); }
+.census-ladder-body{ padding: 2px 9px 8px 9px; }
+.census-ladder-body__chart{ height: 150px; margin: 2px 0 4px; }
+.census-ladder-body__note{ font-size: 10.5px; color: var(--text-muted); }

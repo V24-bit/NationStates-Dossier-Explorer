@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://nationstates-dossier-explorer.vercel.app/sitemap.xml

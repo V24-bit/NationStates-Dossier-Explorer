@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" fill="#123456"/>
+  <text x="16" y="16" font-family="Georgia, 'Times New Roman', serif" font-size="30" font-weight="bold" fill="#FFFFFF" text-anchor="middle" dominant-baseline="central">N</text>
+  <text x="48" y="16" font-family="Georgia, 'Times New Roman', serif" font-size="30" font-weight="bold" fill="#FFFFFF" text-anchor="middle" dominant-baseline="central">S</text>
+  <text x="16" y="48" font-family="Georgia, 'Times New Roman', serif" font-size="30" font-weight="bold" fill="#99CCFF" text-anchor="middle" dominant-baseline="central">D</text>
+  <text x="48" y="48" font-family="Georgia, 'Times New Roman', serif" font-size="30" font-weight="bold" fill="#FFFFFF" text-anchor="middle" dominant-baseline="central">E</text>
+</svg>

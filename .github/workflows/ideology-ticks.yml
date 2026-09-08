@@ -1,0 +1,41 @@
+# Keeps the ideology example pools growing until coverage is complete.
+#
+# Every hour (at :40 past, off the Vercel cron's :30 slot) this hits the site's
+# /api/ideology-examples?tick=1 endpoint, which runs one SMALL paced scan step
+# (~6 classifier requests at 1 req/s, far below the NationStates rate limit)
+# ONLY while any of the 60 ideologies still lacks a verified example. Once
+# every ideology is covered the endpoint short-circuits and this workflow
+# becomes a harmless no-op — no manual switch-off needed.
+#
+# Concurrency guard: a new run cancels a still-running previous one so ticks
+# never stack (the server-side tick lock is the second line of defence).
+
+name: ideology example ticks
+
+on:
+  schedule:
+    - cron: "40 * * * *"
+  workflow_dispatch: {}   # manual trigger for testing
+
+concurrency:
+  group: ideology-ticks
+  cancel-in-progress: true
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Nudge the ideology tick endpoint
+        shell: bash
+        run: |
+          set -uo pipefail
+          URL="https://nationstates-dossier-explorer.vercel.app/api/ideology-examples?tick=1"
+          code=$(curl -s -o /tmp/tick.json -w "%{http_code}" --max-time 120 "$URL")
+          echo "HTTP $code"
+          cat /tmp/tick.json || true
+          # 2xx (including the endpoint's "skipped"/"locked" bodies) is success.
+          if [[ "$code" =~ ^2 ]]; then
+            echo "tick ok"
+          else
+            echo "::warning::tick endpoint returned HTTP $code (non-fatal, retried next hour)"
+          fi

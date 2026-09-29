@@ -952,16 +952,19 @@
   }
 
   async function loadWorldTicker() {
+    const ticker = document.getElementById("world-ticker");
+    if (!ticker) return;
     try {
       const doc = await fetchXML(buildUrl({ q: "numnations+numregions" }));
       const nations = enLocale(text(doc, "NUMNATIONS") || 0);
       const regions = enLocale(text(doc, "NUMREGIONS") || 0);
-      document.getElementById("world-ticker").textContent = `${nations} active nations · ${regions} regions`;
-    } catch (_) { document.getElementById("world-ticker").textContent = "World archive unreachable"; }
+      ticker.textContent = `${nations} active nations · ${regions} regions`;
+    } catch (_) { ticker.textContent = "World archive unreachable"; }
   }
 
   function tickClock() {
     const el = document.getElementById("live-clock");
+    if (!el) return;
     const now = new Date();
     el.textContent = now.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" }) + " · " + now.toLocaleTimeString("en-US");
   }
@@ -1044,6 +1047,13 @@
   let spotRegion = null;
   const form = document.getElementById("lookup-form");
   const input = document.getElementById("query-input");
+  if (form) form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (mode === "world") { openDossier(null, "__world__"); return; }
+    const value = input.value.trim();
+    if (!value) return;
+    openDossier(null, value);
+  });
 
   function canonicalName(s) { return nsName(s); }
   function syncUrl(spec) {
@@ -1126,7 +1136,7 @@
     }
   }
 
-  form.addEventListener("submit", (e) => {
+  if (form) form.addEventListener("submit", (e) => {
     e.preventDefault();
     if (mode === "world") { openDossier(null, "__world__"); return; }
     const value = input.value.trim();

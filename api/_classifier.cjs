@@ -198,9 +198,11 @@ function compassPoint(scales, extras) {
     }
 
     const welfareRank = Number.isFinite(rank[28]) ? rank[28] : null;
+    const incomeEqRank = Number.isFinite(rank[33]) ? rank[33] : null;
     const taxIn = Number.isFinite(extras && extras.tax) ? Math.max(0, Math.min(100, extras.tax)) : null;
     const redistParts = [];
     if (welfareRank != null) redistParts.push((50 - welfareRank) * 0.2);
+    if (incomeEqRank != null) redistParts.push((50 - incomeEqRank) * 0.2);
     if (taxIn != null) redistParts.push((50 - taxIn) * 0.3);
     if (redistParts.length) {
       const redist = redistParts.reduce((a, b) => a + b, 0) / redistParts.length;
@@ -225,7 +227,7 @@ function compassPoint(scales, extras) {
       x: clampCompass(x),
       y: clampCompass(y),
       civil, econ, pol, govtSize, entityType,
-      rank, scores, govt, category, tax: taxIn, welfareRank,
+      rank, scores, govt, category, tax: taxIn, welfareRank, incomeEqRank,
 
       progressive: (civil + pol) / 2,
 
@@ -395,13 +397,15 @@ function ideoExplanation(winner, vetoes, rivals, p, econWord, freeWord, govtSpen
     } else {
       lead += `The regime is ${econWord} economically with ${freeWord} civil liberties, the defining combination of ${winner.name}.`;
     }
-    if (Number.isFinite(f.tax) || Number.isFinite(f.welfareRank)) {
+    if (Number.isFinite(f.tax) || Number.isFinite(f.welfareRank) || Number.isFinite(f.incomeEqRank)) {
       const parts = [];
       if (Number.isFinite(f.tax)) parts.push(`a tax rate of ${R(f.tax)}%`);
       if (Number.isFinite(f.welfareRank)) parts.push(`welfare spending at the ${R(f.welfareRank)}th world percentile`);
+      if (Number.isFinite(f.incomeEqRank)) parts.push(`income equality at the ${R(f.incomeEqRank)}th world percentile`);
       const hiTax = Number.isFinite(f.tax) && f.tax > 50;
       const hiWel = Number.isFinite(f.welfareRank) && f.welfareRank > 50;
-      const dir = hiTax || hiWel ? "leftward" : "rightward";
+      const hiEq = Number.isFinite(f.incomeEqRank) && f.incomeEqRank > 50;
+      const dir = hiTax || hiWel || hiEq ? "leftward" : "rightward";
       lead += ` The redistribution evidence — ${humanJoin(parts)} — shifts the economic axis ${dir}.`;
     }
     P.push(lead);
@@ -549,7 +553,7 @@ function specificIdeology(p, govtSpending, sectors, policies) {
 
     const facts = {
       x, y, civil: p.civil, pol: p.pol, govtSize: p.govtSize, econFree: p.econFree, econ,
-      mktPct, socBits, trad, radic, tax: p.tax, welfareRank: p.welfareRank,
+      mktPct, socBits, trad, radic, tax: p.tax, welfareRank: p.welfareRank, incomeEqRank: p.incomeEqRank,
       cx: wRow ? wRow[2] : null, cy: wRow ? wRow[3] : null, tExp: wRow ? wRow[4] : null, rExp: wRow ? wRow[5] : null,
       dist: winner.d, dec, gap, corr
     };

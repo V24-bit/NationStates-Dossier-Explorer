@@ -9,6 +9,7 @@ const DIST = path.join(ROOT, "dist");
 
 const FILES_TO_COPY = [
   "style.css",
+  "docs.html",
   "robots.txt",
   "sitemap.xml",
   "favicon.svg",
@@ -26,15 +27,18 @@ function buildScript() {
   log(`script.js copied readable: ${(src.length / 1024).toFixed(1)} KB (no obfuscation)`);
 }
 
-const CACHE_VERSION = 9;
+const CACHE_VERSION = 10;
 
 function buildHtml() {
-  let html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-
-  html = html.replace(/(script\.js\?v=)\d+/g, `$1${CACHE_VERSION}`);
-  html = html.replace(/(style\.css\?v=)\d+/g, `$1${CACHE_VERSION}`);
-  fs.writeFileSync(path.join(DIST, "index.html"), html);
-  log(`index.html copied (cache-busted to ?v=${CACHE_VERSION})`);
+  const cacheBust = (file) => {
+    let html = fs.readFileSync(path.join(ROOT, file), "utf8");
+    html = html.replace(/(script\.js\?v=)\d+/g, `$1${CACHE_VERSION}`);
+    html = html.replace(/(style\.css\?v=)\d+/g, `$1${CACHE_VERSION}`);
+    fs.writeFileSync(path.join(DIST, file), html);
+    log(`${file} copied (cache-busted to ?v=${CACHE_VERSION})`);
+  };
+  cacheBust("index.html");
+  cacheBust("docs.html");
 }
 
 function writeVersionJson() {

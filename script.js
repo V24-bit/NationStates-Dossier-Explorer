@@ -1044,6 +1044,33 @@
   let spotRegion = null;
   const form = document.getElementById("lookup-form");
   const input = document.getElementById("query-input");
+
+  function canonicalName(s) { return nsName(s); }
+  function syncUrl(spec) {
+    const params = new URLSearchParams();
+    if (spec.compare) {
+      params.set("compare", spec.compare.map(canonicalName).join(","));
+      if (spec.cmpMode === "region") params.set("type", "region");
+    } else if (spec.mode === "world") {
+      params.set("world", "1");
+    } else {
+      params.set(spec.mode, canonicalName(spec.name));
+    }
+    const qs = params.toString();
+    const next = location.pathname + (qs ? "?" + qs : "");
+    try { history.pushState({ nsde: spec }, "", next); } catch (_) { }
+  }
+  function specFromUrl() {
+    const p = new URLSearchParams(location.search);
+    if (p.get("compare")) {
+      const parts = p.get("compare").split(",").map((s) => s.trim()).filter(Boolean);
+      if (parts.length >= 1) return { compare: parts.slice(0, 2), cmpMode: p.get("type") === "region" ? "region" : "nation" };
+    }
+    if (p.get("world")) return { mode: "world", name: "__world__" };
+    if (p.get("region")) return { mode: "region", name: p.get("region") };
+    if (p.get("nation")) return { mode: "nation", name: p.get("nation") };
+    return null;
+  }
   const prefix = document.getElementById("lookup-prefix");
 
   function setPlaceholder() {
@@ -1092,7 +1119,7 @@
       else if (mode === "nation") await renderNation(name, seq); else await renderRegion(name, seq);
       if (seq !== openSeq) return;
       hideBanner();
-      if (typeof location.hash === "string") { try { history.replaceState(null, "", " "); } catch (_) {} }
+      syncUrl({ mode: isWorld ? "world" : mode, name: isWorld ? null : name });
       document.getElementById("dossier-root").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
       showBanner(err instanceof NSApiError ? err.message : (err.message || "Unexpected error while fetching data."), "error");
@@ -2837,6 +2864,7 @@
         activeCharts.push(chart);
       }
       hideBanner();
+      syncUrl({ compare: [a, b], cmpMode: compareMode });
       wrap.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
       showBanner(err instanceof NSApiError ? err.message : (err.message || "Compare failed."), "error");
@@ -2844,6 +2872,38 @@
   }
   const cmpRun = document.getElementById("compare-run");
   if (cmpRun) cmpRun.addEventListener("click", compareRun);
+
+  function setCompareMode(m) {
+    document.querySelectorAll("#compare-panel .tab").forEach((b) => {
+      const active = b.dataset.cmpmode === m;
+      b.classList.toggle("is-active", active);
+      b.setAttribute("aria-selected", String(active));
+    });
+    compareMode = m;
+  }
+
+  window.addEventListener("popstate", () => {
+    const spec = specFromUrl();
+    if (!spec) { openSeq++; $root.innerHTML = ""; destroyCharts(); return; }
+    applySpec(spec);
+  });
+
+  function applySpec(spec) {
+    if (spec.compare) {
+      setCompareMode(spec.cmpMode || "nation");
+      document.getElementById("cmp-input-a").value = spec.compare[0] ? spec.compare[0].replace(/_/g, " ") : "";
+      document.getElementById("cmp-input-b").value = spec.compare[1] ? spec.compare[1].replace(/_/g, " ") : "";
+      const wasSync = syncUrl;
+      syncUrl = function () {};
+      compareRun().finally(() => { syncUrl = wasSync; });
+      return;
+    }
+    if (spec.mode === "world") { openDossier("world", "__world__"); return; }
+    openDossier(spec.mode, spec.name);
+  }
+
+  const bootSpec = specFromUrl();
+  if (bootSpec) applySpec(bootSpec);
 
   const SPOT_REGIONS = ["The Pacific", "The North Pacific", "The South Pacific", "The East Pacific", "The West Pacific", "The Rejected Realms", "Lazarus", "Osiris", "Balder", "Cascadia", "Europeia", "10000 Islands"];
   function dayIndex() { const now = new Date(); const start = new Date(now.getFullYear(), 0, 0); const diff = now - start; return Math.floor(diff / 86400000); }

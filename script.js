@@ -3197,13 +3197,10 @@
       if (ex) {
         exLine.textContent = "for example: ";
         const a = document.createElement("a");
-        a.href = "#";
+        a.href = "/?nation=" + ex;
+        a.target = "_blank";
+        a.rel = "noopener";
         a.textContent = ex.replace(/_/g, " ");
-        a.addEventListener("click", (e) => {
-          e.preventDefault();
-          closeHelpDialog();
-          openDossier("nation", ex);
-        });
         exLine.appendChild(a);
       } else {
         exLine.textContent = "for example: (we are still searching for an example)";
@@ -3231,24 +3228,6 @@
   refreshIdeoExamples();
 
   if (applyLocalCorrections()) buildHelpIdeologyTable();
-  const helpOpen = document.getElementById("help-open");
-  const helpDialog = document.getElementById("help-dialog");
-  function closeHelpDialog() {
-    if (!helpDialog) return;
-    if (typeof helpDialog.close === "function") helpDialog.close();
-    else helpDialog.removeAttribute("open");
-  }
-  if (helpOpen && helpDialog) {
-    helpOpen.addEventListener("click", () => {
-      if (typeof helpDialog.showModal === "function") helpDialog.showModal();
-      else helpDialog.setAttribute("open", "");
-    });
-    helpDialog.querySelectorAll("[data-close-dialog]").forEach((b) => b.addEventListener("click", closeHelpDialog));
-
-    helpDialog.addEventListener("click", (e) => { if (e.target === helpDialog) closeHelpDialog(); });
-
-    helpDialog.addEventListener("keydown", (e) => { if (e.key === "Escape") closeHelpDialog(); });
-  }
 
   function fmtElapsed(ms) {
     const s = Math.max(0, Math.floor(ms / 1000));
